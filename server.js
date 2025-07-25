@@ -23,7 +23,7 @@ app.use(compression());
 // CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-frontend-domain.com'] 
+    ? ['https://parking-zone-fe-t3nr.vercel.app/'] 
     : ['http://localhost:3000', 'http://localhost:5173'],
   credentials: true
 }));
