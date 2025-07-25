@@ -9,7 +9,7 @@ async function testCORS() {
 
   const backendUrl = 'https://parking-zone-be.onrender.com';
 
-  console.log('🧪 Testing CORS configuration...\n');
+  console.log('🧪 Testing CORS configuration (same for all environments)...\n');
 
   for (const origin of testUrls) {
     try {
