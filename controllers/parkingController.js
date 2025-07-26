@@ -13,7 +13,15 @@ exports.getAllParkingLots = async (req, res) => {
     const parkingLots = await ParkingLot.find(query)
       .sort({ createdAt: -1 });
 
-    res.json({ parkingLots });
+    // For general listing, show total capacity (not time-specific availability)
+    const parkingLotsWithCapacity = parkingLots.map((lot) => {
+      return {
+        ...lot.toObject(),
+        availableSpaces: lot.totalSpaces // Show full capacity for general listing
+      };
+    });
+
+    res.json({ parkingLots: parkingLotsWithCapacity });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
@@ -35,6 +43,54 @@ exports.getParkingLotById = async (req, res) => {
   }
 };
 
+// Get parking lot availability for a specific date
+exports.getParkingLotAvailability = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
+
+    const parkingLot = await ParkingLot.findById(id);
+    if (!parkingLot) {
+      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+    }
+
+    if (!date) {
+      return res.status(400).json({ message: 'Thiếu thông tin ngày' });
+    }
+
+    const targetDate = new Date(date);
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Count overlapping bookings for this specific day
+    const overlappingBookings = await Booking.countDocuments({
+      parkingLot: parkingLot._id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      $or: [
+        {
+          checkInTime: { $lt: endOfDay },
+          checkOutTime: { $gt: startOfDay }
+        }
+      ]
+    });
+
+    const availableSpaces = Math.max(0, parkingLot.totalSpaces - overlappingBookings);
+
+    res.json({
+      parkingLotId: parkingLot._id,
+      date: date,
+      totalSpaces: parkingLot.totalSpaces,
+      availableSpaces: availableSpaces,
+      occupiedSpaces: overlappingBookings,
+      isAvailable: availableSpaces > 0
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Create parking lot
 exports.createParkingLot = async (req, res) => {
   try {
@@ -43,7 +99,7 @@ exports.createParkingLot = async (req, res) => {
       type,
       totalSpaces,
       basePrice,
-      pricePerHour,
+      pricePerDay,
       description,
       location,
       features,
@@ -56,7 +112,7 @@ exports.createParkingLot = async (req, res) => {
       totalSpaces,
       availableSpaces: totalSpaces,
       basePrice,
-      pricePerHour,
+      pricePerDay,
       description,
       location,
       features,
@@ -184,52 +240,6 @@ exports.removeSpecialPrice = async (req, res) => {
   }
 };
 
-// Get parking lot availability
-exports.getParkingLotAvailability = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { date } = req.query;
 
-    const parkingLot = await ParkingLot.findById(id);
-    if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
-    }
-
-    const targetDate = date ? new Date(date) : new Date();
-    targetDate.setHours(0, 0, 0, 0);
-    const nextDate = new Date(targetDate);
-    nextDate.setDate(nextDate.getDate() + 1);
-
-    // Get bookings for the specified date
-    const bookings = await Booking.find({
-      parkingLot: id,
-      status: { $in: ['confirmed', 'checked-in'] },
-      $or: [
-        {
-          checkInTime: { $lt: nextDate },
-          checkOutTime: { $gt: targetDate }
-        }
-      ]
-    });
-
-    const occupiedSpaces = bookings.length;
-    const availableSpaces = parkingLot.totalSpaces - occupiedSpaces;
-
-    res.json({
-      parkingLot: {
-        _id: parkingLot._id,
-        name: parkingLot.name,
-        type: parkingLot.type,
-        totalSpaces: parkingLot.totalSpaces,
-        availableSpaces: Math.max(0, availableSpaces),
-        occupancyRate: ((occupiedSpaces / parkingLot.totalSpaces) * 100).toFixed(2)
-      },
-      date: targetDate.toISOString().split('T')[0],
-      bookings: bookings.length
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
-  }
-};
 
 module.exports = exports; 

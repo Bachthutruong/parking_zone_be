@@ -26,9 +26,9 @@ const parkingLotSchema = new mongoose.Schema({
     required: [true, 'Base price is required'],
     min: 0
   },
-  pricePerHour: {
+  pricePerDay: {
     type: Number,
-    required: [true, 'Price per hour is required'],
+    required: [true, 'Price per day is required'],
     min: 0
   },
   specialPrices: [{
@@ -82,9 +82,30 @@ parkingLotSchema.virtual('occupancyRate').get(function() {
 });
 
 // Method to check if parking lot is available for given time
-parkingLotSchema.methods.isAvailableForTime = function(startTime, endTime) {
-  // This would need to be implemented with actual booking logic
-  return this.availableSpaces > 0;
+parkingLotSchema.methods.isAvailableForTime = async function(startTime, endTime) {
+  const Booking = require('./Booking');
+  
+  // Check if there are any overlapping bookings
+  const overlappingBookings = await Booking.countDocuments({
+    parkingLot: this._id,
+    status: { $in: ['pending', 'confirmed', 'checked-in'] },
+    $or: [
+      // New booking starts during existing booking
+      {
+        checkInTime: { $lt: endTime },
+        checkOutTime: { $gt: startTime }
+      },
+      // New booking completely contains existing booking
+      {
+        checkInTime: { $gte: startTime },
+        checkOutTime: { $lte: endTime }
+      }
+    ]
+  });
+
+  // Check if we have enough available spaces
+  const availableSpaces = this.totalSpaces - overlappingBookings;
+  return availableSpaces > 0;
 };
 
 // Method to get price for specific date
@@ -92,7 +113,37 @@ parkingLotSchema.methods.getPriceForDate = function(date) {
   const specialPrice = this.specialPrices.find(sp => 
     sp.date.toDateString() === date.toDateString()
   );
-  return specialPrice ? specialPrice.price : this.basePrice;
+  return specialPrice ? specialPrice.price : this.pricePerDay;
+};
+
+// Method to calculate total price for a date range
+parkingLotSchema.methods.calculatePriceForRange = function(startTime, endTime) {
+  const startDate = new Date(startTime);
+  const endDate = new Date(endTime);
+  
+  // Calculate duration in days (rounded up)
+  const durationMs = endDate - startDate;
+  const durationDays = Math.ceil(durationMs / (1000 * 60 * 60 * 24));
+  
+  // If duration is less than 1 day, charge for 1 day
+  const daysToCharge = Math.max(1, durationDays);
+  
+  // Calculate price for each day
+  let totalPrice = 0;
+  const currentDate = new Date(startDate);
+  
+  for (let i = 0; i < daysToCharge; i++) {
+    const dayPrice = this.getPriceForDate(currentDate);
+    totalPrice += dayPrice;
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+  
+  return {
+    durationDays: durationDays,
+    daysToCharge: daysToCharge,
+    totalPrice: totalPrice,
+    pricePerDay: this.pricePerDay
+  };
 };
 
 module.exports = mongoose.model('ParkingLot', parkingLotSchema); 

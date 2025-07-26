@@ -134,10 +134,10 @@ const bookingSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Virtual for duration in hours
-bookingSchema.virtual('durationHours').get(function() {
+// Virtual for duration in days
+bookingSchema.virtual('durationDays').get(function() {
   const duration = this.checkOutTime - this.checkInTime;
-  return Math.ceil(duration / (1000 * 60 * 60)); // Convert to hours
+  return Math.ceil(duration / (1000 * 60 * 60 * 24)); // Convert to days
 });
 
 // Virtual for is overdue

@@ -199,9 +199,9 @@ const validateParkingLot = [
     .isFloat({ min: 0 })
     .withMessage('Giá cơ bản phải là số dương'),
   
-  body('pricePerHour')
+  body('pricePerDay')
     .isFloat({ min: 0 })
-    .withMessage('Giá theo giờ phải là số dương'),
+    .withMessage('Giá theo ngày phải là số dương'),
   
   handleValidationErrors
 ];

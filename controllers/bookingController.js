@@ -35,10 +35,27 @@ exports.checkAvailability = async (req, res) => {
 
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
-    const durationHours = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60));
 
-    // Check availability
+    // Check availability using the new logic
     const isAvailable = await parkingLot.isAvailableForTime(checkIn, checkOut);
+    
+    // Calculate actual available spaces
+    const Booking = require('../models/Booking');
+    const overlappingBookings = await Booking.countDocuments({
+      parkingLot: parkingLot._id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      $or: [
+        {
+          checkInTime: { $lt: checkOut },
+          checkOutTime: { $gt: checkIn }
+        },
+        {
+          checkInTime: { $gte: checkIn },
+          checkOutTime: { $lte: checkOut }
+        }
+      ]
+    });
+    const actualAvailableSpaces = parkingLot.totalSpaces - overlappingBookings;
     
     if (!isAvailable) {
       return res.json({
@@ -49,22 +66,23 @@ exports.checkAvailability = async (req, res) => {
       });
     }
 
-    // Calculate pricing
-    const basePrice = parkingLot.getPriceForDate(checkIn);
-    const totalPrice = basePrice * durationHours;
+    // Calculate pricing using new day-based logic
+    const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
 
     res.json({
       success: true,
+      availableSpaces: actualAvailableSpaces,
       availableSlots: [{
         parkingLotId: parkingLot._id,
         name: parkingLot.name,
         type: parkingLot.type,
-        availableSpaces: parkingLot.availableSpaces
+        availableSpaces: actualAvailableSpaces
       }],
       pricing: {
-        basePrice,
-        durationHours,
-        totalPrice
+        basePrice: pricing.pricePerDay,
+        durationDays: pricing.durationDays,
+        daysToCharge: pricing.daysToCharge,
+        totalPrice: pricing.totalPrice
       }
     });
   } catch (error) {
@@ -96,16 +114,35 @@ exports.getAvailableParkingLots = async (req, res) => {
     for (const lot of parkingLots) {
       const isAvailable = await lot.isAvailableForTime(checkIn, checkOut);
       if (isAvailable) {
-        const price = lot.getPriceForDate(checkIn);
+        // Calculate actual available spaces
+        const overlappingBookings = await Booking.countDocuments({
+          parkingLot: lot._id,
+          status: { $in: ['pending', 'confirmed', 'checked-in'] },
+          $or: [
+            {
+              checkInTime: { $lt: checkOut },
+              checkOutTime: { $gt: checkIn }
+            },
+            {
+              checkInTime: { $gte: checkIn },
+              checkOutTime: { $lte: checkOut }
+            }
+          ]
+        });
+        const actualAvailableSpaces = Math.max(0, lot.totalSpaces - overlappingBookings);
+        
+        const pricing = lot.calculatePriceForRange(checkIn, checkOut);
         availableLots.push({
           _id: lot._id,
           name: lot.name,
           type: lot.type,
           totalSpaces: lot.totalSpaces,
-          availableSpaces: lot.availableSpaces,
+          availableSpaces: actualAvailableSpaces,
           basePrice: lot.basePrice,
-          pricePerHour: lot.pricePerHour,
-          price: price,
+          pricePerDay: lot.pricePerDay,
+          price: pricing.totalPrice,
+          durationDays: pricing.durationDays,
+          daysToCharge: pricing.daysToCharge,
           description: lot.description,
           features: lot.features
         });
@@ -139,14 +176,13 @@ exports.calculatePrice = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
     }
 
-    // Calculate duration in hours
+    // Calculate pricing using new day-based logic
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
-    const durationHours = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60));
+    const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
 
     // Calculate base price
-    const basePrice = parkingLot.getPriceForDate(checkIn);
-    const totalBasePrice = basePrice * durationHours;
+    const totalBasePrice = pricing.totalPrice;
 
     // Calculate addon services price
     let addonTotal = 0;
@@ -205,8 +241,9 @@ exports.calculatePrice = async (req, res) => {
     const finalAmount = totalAmount - finalDiscount;
 
     res.json({
-      basePrice,
-      durationHours,
+      basePrice: pricing.pricePerDay,
+      durationDays: pricing.durationDays,
+      daysToCharge: pricing.daysToCharge,
       totalBasePrice,
       addonTotal,
       addonDetails,
@@ -422,10 +459,10 @@ async function calculateBookingPrice({
   const parkingLot = await ParkingLot.findById(parkingLotId);
   const checkIn = new Date(checkInTime);
   const checkOut = new Date(checkOutTime);
-  const durationHours = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60));
-
-  const basePrice = parkingLot.getPriceForDate(checkIn);
-  const totalBasePrice = basePrice * durationHours;
+  
+  // Calculate pricing using new day-based logic
+  const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
+  const totalBasePrice = pricing.totalPrice;
 
   let addonTotal = 0;
   const addonDetails = [];
@@ -479,8 +516,9 @@ async function calculateBookingPrice({
   const finalAmount = totalAmount - finalDiscount;
 
   return {
-    basePrice,
-    durationHours,
+    basePrice: pricing.pricePerDay,
+    durationDays: pricing.durationDays,
+    daysToCharge: pricing.daysToCharge,
     totalBasePrice,
     addonTotal,
     addonDetails,
