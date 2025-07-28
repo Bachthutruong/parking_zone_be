@@ -1,9 +1,10 @@
 const Booking = require('../models/Booking');
-const ParkingLot = require('../models/ParkingLot');
+const ParkingType = require('../models/ParkingType');
 const AddonService = require('../models/AddonService');
 const DiscountCode = require('../models/DiscountCode');
 const SystemSettings = require('../models/SystemSettings');
 const User = require('../models/User');
+const notificationService = require('../utils/notificationService');
 
 // Get booking terms and rules
 exports.getBookingTerms = async (req, res) => {
@@ -19,63 +20,89 @@ exports.getBookingTerms = async (req, res) => {
   }
 };
 
-// Check availability for specific parking lot and time
+// Check availability for specific parking type and time
 exports.checkAvailability = async (req, res) => {
   try {
-    const { parkingLotId, checkInTime, checkOutTime } = req.body;
+    const { parkingTypeId, checkInTime, checkOutTime } = req.body;
     
-    if (!parkingLotId || !checkInTime || !checkOutTime) {
+    if (!parkingTypeId || !checkInTime || !checkOutTime) {
       return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
     }
 
-    const parkingLot = await ParkingLot.findById(parkingLotId);
-    if (!parkingLot || !parkingLot.isActive) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    if (!parkingType.isActive) {
+      return res.json({
+        success: false,
+        message: 'Loại bãi đậu xe này hiện không hoạt động',
+        availableSlots: [],
+        pricing: null
+      });
     }
 
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
 
-    // Check availability using the new logic
-    const isAvailable = await parkingLot.isAvailableForTime(checkIn, checkOut);
-    
-    // Calculate actual available spaces
-    const Booking = require('../models/Booking');
+    // Validate date range
+    if (checkOut <= checkIn) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Thời gian rời bãi phải sau thời gian vào bãi' 
+      });
+    }
+
+    // Check if dates are in the future
+    const now = new Date();
+    if (checkIn < now) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Thời gian vào bãi không thể trong quá khứ' 
+      });
+    }
+
+    // Count overlapping bookings for the specific time range
     const overlappingBookings = await Booking.countDocuments({
-      parkingLot: parkingLot._id,
+      parkingType: parkingType._id,
       status: { $in: ['pending', 'confirmed', 'checked-in'] },
       $or: [
+        // Bookings that overlap with the requested time range
         {
           checkInTime: { $lt: checkOut },
           checkOutTime: { $gt: checkIn }
-        },
-        {
-          checkInTime: { $gte: checkIn },
-          checkOutTime: { $lte: checkOut }
         }
       ]
     });
-    const actualAvailableSpaces = parkingLot.totalSpaces - overlappingBookings;
+
+    const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
+    const isAvailable = actualAvailableSpaces > 0;
     
     if (!isAvailable) {
       return res.json({
         success: false,
         message: 'Bãi đậu xe đã hết chỗ trong thời gian này',
         availableSlots: [],
-        pricing: null
+        pricing: null,
+        details: {
+          totalSpaces: parkingType.totalSpaces,
+          occupiedSpaces: overlappingBookings,
+          availableSpaces: actualAvailableSpaces
+        }
       });
     }
 
     // Calculate pricing using new day-based logic
-    const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
+    const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
 
     res.json({
       success: true,
       availableSpaces: actualAvailableSpaces,
       availableSlots: [{
-        parkingLotId: parkingLot._id,
-        name: parkingLot.name,
-        type: parkingLot.type,
+        parkingTypeId: parkingType._id,
+        name: parkingType.name,
+        type: parkingType.type,
         availableSpaces: actualAvailableSpaces
       }],
       pricing: {
@@ -83,6 +110,12 @@ exports.checkAvailability = async (req, res) => {
         durationDays: pricing.durationDays,
         daysToCharge: pricing.daysToCharge,
         totalPrice: pricing.totalPrice
+      },
+      details: {
+        totalSpaces: parkingType.totalSpaces,
+        occupiedSpaces: overlappingBookings,
+        availableSpaces: actualAvailableSpaces,
+        occupancyRate: ((overlappingBookings / parkingType.totalSpaces) * 100).toFixed(1)
       }
     });
   } catch (error) {
@@ -91,8 +124,8 @@ exports.checkAvailability = async (req, res) => {
   }
 };
 
-// Get available parking lots by type
-exports.getAvailableParkingLots = async (req, res) => {
+// Get available parking types by type
+exports.getAvailableParkingTypes = async (req, res) => {
   try {
     const { type, checkInTime, checkOutTime } = req.query;
     
@@ -103,20 +136,20 @@ exports.getAvailableParkingLots = async (req, res) => {
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
 
-    // Get parking lots of the specified type
-    const parkingLots = await ParkingLot.find({ 
+    // Get parking types of the specified type
+    const parkingTypes = await ParkingType.find({ 
       type, 
       isActive: true 
     });
 
-    // Check availability for each parking lot
-    const availableLots = [];
-    for (const lot of parkingLots) {
-      const isAvailable = await lot.isAvailableForTime(checkIn, checkOut);
+    // Check availability for each parking type
+    const availableTypes = [];
+    for (const parkingType of parkingTypes) {
+      const isAvailable = await parkingType.isAvailableForTime(checkIn, checkOut);
       if (isAvailable) {
         // Calculate actual available spaces
         const overlappingBookings = await Booking.countDocuments({
-          parkingLot: lot._id,
+          parkingType: parkingType._id,
           status: { $in: ['pending', 'confirmed', 'checked-in'] },
           $or: [
             {
@@ -129,27 +162,26 @@ exports.getAvailableParkingLots = async (req, res) => {
             }
           ]
         });
-        const actualAvailableSpaces = Math.max(0, lot.totalSpaces - overlappingBookings);
+        const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
         
-        const pricing = lot.calculatePriceForRange(checkIn, checkOut);
-        availableLots.push({
-          _id: lot._id,
-          name: lot.name,
-          type: lot.type,
-          totalSpaces: lot.totalSpaces,
+        const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+        availableTypes.push({
+          _id: parkingType._id,
+          name: parkingType.name,
+          type: parkingType.type,
+          totalSpaces: parkingType.totalSpaces,
           availableSpaces: actualAvailableSpaces,
-          basePrice: lot.basePrice,
-          pricePerDay: lot.pricePerDay,
+          pricePerDay: parkingType.pricePerDay,
           price: pricing.totalPrice,
           durationDays: pricing.durationDays,
           daysToCharge: pricing.daysToCharge,
-          description: lot.description,
-          features: lot.features
+          description: parkingType.description,
+          features: parkingType.features
         });
       }
     }
 
-    res.json({ parkingLots: availableLots });
+    res.json({ parkingTypes: availableTypes });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
@@ -159,7 +191,7 @@ exports.getAvailableParkingLots = async (req, res) => {
 exports.calculatePrice = async (req, res) => {
   try {
     const { 
-      parkingLotId, 
+      parkingTypeId, 
       checkInTime, 
       checkOutTime, 
       addonServices = [],
@@ -167,19 +199,19 @@ exports.calculatePrice = async (req, res) => {
       isVIP = false 
     } = req.body;
 
-    if (!parkingLotId || !checkInTime || !checkOutTime) {
+    if (!parkingTypeId || !checkInTime || !checkOutTime) {
       return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
     }
 
-    const parkingLot = await ParkingLot.findById(parkingLotId);
-    if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
     }
 
     // Calculate pricing using new day-based logic
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
-    const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
+    const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
 
     // Calculate base price
     const totalBasePrice = pricing.totalPrice;
@@ -220,7 +252,6 @@ exports.calculatePrice = async (req, res) => {
         } else {
           discountAmount = code.discountValue;
         }
-        discountType = code.discountType;
         discountCodeInfo = {
           code: code.code,
           discountValue: code.discountValue,
@@ -229,7 +260,6 @@ exports.calculatePrice = async (req, res) => {
       }
     }
 
-    // Calculate VIP discount
     let vipDiscount = 0;
     if (isVIP) {
       const settings = await SystemSettings.getSettings();
@@ -241,19 +271,19 @@ exports.calculatePrice = async (req, res) => {
     const finalAmount = totalAmount - finalDiscount;
 
     res.json({
-      basePrice: pricing.pricePerDay,
-      durationDays: pricing.durationDays,
-      daysToCharge: pricing.daysToCharge,
-      totalBasePrice,
-      addonTotal,
+      success: true,
+      pricing: {
+        basePrice: totalBasePrice,
+        addonTotal: addonTotal,
+        discountAmount: discountAmount,
+        vipDiscount: vipDiscount,
+        totalAmount: totalAmount,
+        finalAmount: finalAmount,
+        durationDays: pricing.durationDays,
+        daysToCharge: pricing.daysToCharge
+      },
       addonDetails,
-      totalAmount,
-      discountAmount,
-      vipDiscount,
-      finalDiscount,
-      finalAmount,
-      discountCodeInfo,
-      currency: 'TWD'
+      discountCodeInfo
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
@@ -264,7 +294,7 @@ exports.calculatePrice = async (req, res) => {
 exports.createBooking = async (req, res) => {
   try {
     const {
-      parkingLotId,
+      parkingTypeId,
       checkInTime,
       checkOutTime,
       driverName,
@@ -298,31 +328,32 @@ exports.createBooking = async (req, res) => {
       });
     }
 
-    // Check if parking lot is still available
-    const parkingLot = await ParkingLot.findById(parkingLotId);
-    if (!parkingLot || !parkingLot.isActive) {
-      return res.status(400).json({ message: 'Bãi đậu xe không khả dụng' });
+    // Check if parking type is still available
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType || !parkingType.isActive) {
+      return res.status(400).json({ message: 'Loại bãi đậu xe không khả dụng' });
     }
 
-    const isAvailable = await parkingLot.isAvailableForTime(new Date(checkInTime), new Date(checkOutTime));
+    const isAvailable = await parkingType.isAvailableForTime(new Date(checkInTime), new Date(checkOutTime));
     if (!isAvailable) {
       return res.status(400).json({ message: 'Bãi đậu xe đã hết chỗ trong thời gian này' });
     }
 
     // Calculate price
     const priceCalculation = await calculateBookingPrice({
-      parkingLotId,
+      parkingTypeId,
       checkInTime,
       checkOutTime,
       addonServices,
       discountCode,
-      isVIP: user.isVIP
+      isVIP: user.isVIP,
+      userEmail: user.email
     });
 
     // Create booking
     const booking = await Booking.create({
       user: user._id,
-      parkingLot: parkingLotId,
+      parkingType: parkingTypeId,
       checkInTime,
       checkOutTime,
       driverName,
@@ -345,22 +376,85 @@ exports.createBooking = async (req, res) => {
       paymentMethod: 'cash'
     });
 
-    // Update parking lot availability
-    await ParkingLot.findByIdAndUpdate(parkingLotId, {
+    // Update parking type availability
+    await ParkingType.findByIdAndUpdate(parkingTypeId, {
       $inc: { availableSpaces: -1 }
     });
 
+    // Populate user and parking type for notification
+    await booking.populate('user parkingType');
+
+    // Send notification
+    try {
+      const notificationResults = await notificationService.sendBookingConfirmation(booking, booking.user);
+      console.log('Notification results:', notificationResults);
+    } catch (notificationError) {
+      console.error('Error sending notification:', notificationError);
+      // Don't fail the booking if notification fails
+    }
+
+    // Populate full booking data for response
+    const populatedBooking = await Booking.findById(booking._id)
+      .populate('parkingType', 'name type location')
+      .populate('addonServices.service', 'name icon price')
+      .populate('user', 'name email phone');
+
     res.status(201).json({
       message: 'Đặt chỗ thành công',
-      booking: {
-        _id: booking._id,
-        bookingNumber: `BK${booking._id.toString().slice(-6).toUpperCase()}`,
-        status: booking.status,
-        finalAmount: booking.finalAmount
-      }
+      booking: populatedBooking
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Cancel booking
+exports.cancelBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const booking = await Booking.findById(id).populate('user parkingType');
+    
+    if (!booking) {
+      return res.status(404).json({ 
+        message: 'Không tìm thấy đặt chỗ' 
+      });
+    }
+
+    if (booking.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        message: 'Không có quyền hủy đặt chỗ này' 
+      });
+    }
+
+    // Calculate refund amount
+    const refundAmount = booking.totalAmount;
+
+    // Update booking status
+    booking.status = 'cancelled';
+    booking.cancelledAt = new Date();
+    booking.cancelReason = reason || 'Hủy bởi khách hàng';
+    await booking.save();
+
+    // Send cancellation notification
+    try {
+      const notificationResults = await notificationService.sendCancellationNotification(booking, booking.user, refundAmount);
+      console.log('Cancellation notification results:', notificationResults);
+    } catch (notificationError) {
+      console.error('Error sending cancellation notification:', notificationError);
+    }
+
+    res.json({
+      message: 'Hủy đặt chỗ thành công',
+      refundAmount,
+      booking
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message 
+    });
   }
 };
 
@@ -378,7 +472,7 @@ exports.getBookingBySearch = async (req, res) => {
     if (licensePlate) query.licensePlate = licensePlate;
 
     const bookings = await Booking.find(query)
-      .populate('parkingLot', 'name type')
+      .populate('parkingType', 'name type')
       .populate('addonServices.service', 'name icon price')
       .sort({ createdAt: -1 })
       .limit(10);
@@ -395,7 +489,7 @@ exports.getBookingDetails = async (req, res) => {
     const { id } = req.params;
 
     const booking = await Booking.findById(id)
-      .populate('parkingLot', 'name type description location')
+      .populate('parkingType', 'name type description location')
       .populate('addonServices.service', 'name icon price description')
       .populate('user', 'name email phone isVIP');
 
@@ -436,7 +530,7 @@ exports.updateBookingStatus = async (req, res) => {
       id,
       updateData,
       { new: true }
-    ).populate('parkingLot', 'name type');
+    ).populate('parkingType', 'name type');
 
     res.json({
       message: 'Cập nhật trạng thái thành công',
@@ -449,21 +543,27 @@ exports.updateBookingStatus = async (req, res) => {
 
 // Helper function to calculate booking price
 async function calculateBookingPrice({
-  parkingLotId,
+  parkingTypeId,
   checkInTime,
   checkOutTime,
   addonServices = [],
   discountCode = null,
-  isVIP = false
+  isVIP = false,
+  userEmail = null
 }) {
-  const parkingLot = await ParkingLot.findById(parkingLotId);
+  const parkingType = await ParkingType.findById(parkingTypeId);
+  if (!parkingType) {
+    throw new Error('Không tìm thấy loại bãi đậu xe');
+  }
+
   const checkIn = new Date(checkInTime);
   const checkOut = new Date(checkOutTime);
   
   // Calculate pricing using new day-based logic
-  const pricing = parkingLot.calculatePriceForRange(checkIn, checkOut);
+  const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
   const totalBasePrice = pricing.totalPrice;
 
+  // Calculate addon services
   let addonTotal = 0;
   const addonDetails = [];
   
@@ -480,23 +580,33 @@ async function calculateBookingPrice({
     }
   }
 
+  // Calculate subtotal (base + addons)
+  const subtotal = totalBasePrice + addonTotal;
+
+  // Apply discount code first
   let discountAmount = 0;
   let discountCodeInfo = null;
 
   if (discountCode) {
     const code = await DiscountCode.findOne({ 
-      code: discountCode.toUpperCase(),
+      code: discountCode.toUpperCase().trim(),
       isActive: true,
       validFrom: { $lte: new Date() },
       validTo: { $gte: new Date() }
     });
 
     if (code) {
-      if (code.discountType === 'percentage') {
-        discountAmount = (totalBasePrice + addonTotal) * (code.discountValue / 100);
-      } else {
-        discountAmount = code.discountValue;
+      // Check usage limit
+      if (code.maxUsage && code.usageCount >= code.maxUsage) {
+        throw new Error('Mã giảm giá đã hết lượt sử dụng');
       }
+
+      if (code.discountType === 'percentage') {
+        discountAmount = subtotal * (code.discountValue / 100);
+      } else {
+        discountAmount = Math.min(code.discountValue, subtotal); // Don't discount more than subtotal
+      }
+      
       discountCodeInfo = {
         code: code.code,
         discountValue: code.discountValue,
@@ -505,30 +615,117 @@ async function calculateBookingPrice({
     }
   }
 
+  // Apply VIP discount after discount code
   let vipDiscount = 0;
-  if (isVIP) {
-    const settings = await SystemSettings.getSettings();
-    vipDiscount = (totalBasePrice + addonTotal - discountAmount) * (settings.defaultVIPDiscount / 100);
+  if (isVIP && userEmail) {
+    // Get user's VIP discount percentage
+    const user = await User.findOne({ email: userEmail });
+    const vipDiscountPercent = user?.vipDiscount || 0;
+    
+    if (vipDiscountPercent > 0) {
+      const amountAfterDiscount = subtotal - discountAmount;
+      vipDiscount = amountAfterDiscount * (vipDiscountPercent / 100);
+    }
   }
 
-  const totalAmount = totalBasePrice + addonTotal;
+  // Calculate final amounts
+  const totalAmount = subtotal;
   const finalDiscount = discountAmount + vipDiscount;
-  const finalAmount = totalAmount - finalDiscount;
+  const finalAmount = Math.max(0, totalAmount - finalDiscount); // Ensure final amount is not negative
 
   return {
-    basePrice: pricing.pricePerDay,
-    durationDays: pricing.durationDays,
-    daysToCharge: pricing.daysToCharge,
-    totalBasePrice,
-    addonTotal,
-    addonDetails,
     totalAmount,
     discountAmount,
     vipDiscount,
-    finalDiscount,
     finalAmount,
-    discountCodeInfo
+    addonDetails,
+    discountCodeInfo,
+    pricing: {
+      basePrice: totalBasePrice,
+      addonTotal: addonTotal,
+      subtotal: subtotal,
+      durationDays: pricing.durationDays,
+      daysToCharge: pricing.daysToCharge
+    }
   };
 }
+
+// Apply discount code
+exports.applyDiscount = async (req, res) => {
+  try {
+    const { discountCode, parkingTypeId, checkInTime, checkOutTime, addonServices = [], isVIP = false } = req.body;
+    
+    if (!discountCode || !parkingTypeId || !checkInTime || !checkOutTime) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Thiếu thông tin cần thiết' 
+      });
+    }
+
+    // Find the discount code
+    const code = await DiscountCode.findOne({ 
+      code: discountCode.toUpperCase().trim(),
+      isActive: true,
+      validFrom: { $lte: new Date() },
+      validTo: { $gte: new Date() }
+    });
+
+    if (!code) {
+      return res.json({
+        success: false,
+        message: 'Mã giảm giá không hợp lệ hoặc đã hết hạn'
+      });
+    }
+
+    // Check if code usage limit exceeded
+    if (code.maxUsage && code.usageCount >= code.maxUsage) {
+      return res.json({
+        success: false,
+        message: 'Mã giảm giá đã hết lượt sử dụng'
+      });
+    }
+
+    // Calculate pricing with VIP status
+    const pricing = await calculateBookingPrice({
+      parkingTypeId,
+      checkInTime,
+      checkOutTime,
+      addonServices,
+      discountCode: code.code,
+      isVIP: isVIP,
+      userEmail: req.body.email || null
+    });
+
+    if (pricing.discountAmount <= 0) {
+      return res.json({
+        success: false,
+        message: 'Mã giảm giá không áp dụng được cho đơn hàng này'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Áp dụng mã giảm giá thành công',
+      discountInfo: {
+        code: code.code,
+        discountAmount: pricing.discountAmount,
+        vipDiscount: pricing.vipDiscount,
+        discountType: code.discountType,
+        discountValue: code.discountValue,
+        finalAmount: pricing.finalAmount,
+        originalAmount: pricing.totalAmount,
+        totalDiscount: pricing.discountAmount + pricing.vipDiscount
+      }
+    });
+
+  } catch (error) {
+    console.error('Error applying discount:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi server', 
+      error: error.message 
+    });
+  }
+};
 
 module.exports = exports; 

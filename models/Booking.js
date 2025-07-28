@@ -6,9 +6,9 @@ const bookingSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
-  parkingLot: {
+  parkingType: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'ParkingLot',
+    ref: 'ParkingType',
     required: true
   },
   licensePlate: {
@@ -134,24 +134,33 @@ const bookingSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Virtual for booking number
+bookingSchema.virtual('bookingNumber').get(function() {
+  return `BK${this._id.toString().slice(-6).toUpperCase()}`;
+});
+
 // Virtual for duration in days
 bookingSchema.virtual('durationDays').get(function() {
-  const duration = this.checkOutTime - this.checkInTime;
-  return Math.ceil(duration / (1000 * 60 * 60 * 24)); // Convert to days
+  const durationMs = this.checkOutTime - this.checkInTime;
+  return Math.ceil(durationMs / (1000 * 60 * 60 * 24));
 });
 
 // Virtual for is overdue
 bookingSchema.virtual('isOverdue').get(function() {
-  if (this.status === 'checked-in' && this.actualCheckInTime) {
-    return new Date() > this.checkOutTime;
+  if (this.status === 'checked-in' && this.actualCheckOutTime) {
+    return this.actualCheckOutTime > this.checkOutTime;
   }
-  return false;
+  return this.status === 'checked-in' && new Date() > this.checkOutTime;
 });
 
-// Index for efficient queries
-bookingSchema.index({ user: 1, createdAt: -1 });
-bookingSchema.index({ parkingLot: 1, checkInTime: 1, checkOutTime: 1 });
+// Index for better query performance
+bookingSchema.index({ user: 1 });
+bookingSchema.index({ parkingType: 1 });
 bookingSchema.index({ status: 1 });
-bookingSchema.index({ licensePlate: 1, phone: 1 });
+bookingSchema.index({ checkInTime: 1 });
+bookingSchema.index({ checkOutTime: 1 });
+bookingSchema.index({ phone: 1 });
+bookingSchema.index({ licensePlate: 1 });
+bookingSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Booking', bookingSchema); 

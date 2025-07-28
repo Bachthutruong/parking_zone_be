@@ -1,8 +1,8 @@
-const ParkingLot = require('../models/ParkingLot');
+const ParkingType = require('../models/ParkingType');
 const Booking = require('../models/Booking');
 
-// Get all parking lots
-exports.getAllParkingLots = async (req, res) => {
+// Get all parking types
+exports.getAllParkingTypes = async (req, res) => {
   try {
     const { type, isActive } = req.query;
     
@@ -10,48 +10,48 @@ exports.getAllParkingLots = async (req, res) => {
     if (type) query.type = type;
     if (isActive !== undefined) query.isActive = isActive === 'true';
 
-    const parkingLots = await ParkingLot.find(query)
+    const parkingTypes = await ParkingType.find(query)
       .sort({ createdAt: -1 });
 
     // For general listing, show total capacity (not time-specific availability)
-    const parkingLotsWithCapacity = parkingLots.map((lot) => {
+    const parkingTypesWithCapacity = parkingTypes.map((parkingType) => {
       return {
-        ...lot.toObject(),
-        availableSpaces: lot.totalSpaces // Show full capacity for general listing
+        ...parkingType.toObject(),
+        availableSpaces: parkingType.totalSpaces // Show full capacity for general listing
       };
     });
 
-    res.json({ parkingLots: parkingLotsWithCapacity });
+    res.json({ parkingTypes: parkingTypesWithCapacity });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
 
-// Get parking lot by ID
-exports.getParkingLotById = async (req, res) => {
+// Get parking type by ID
+exports.getParkingTypeById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const parkingLot = await ParkingLot.findById(id);
-    if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
     }
 
-    res.json({ parkingLot });
+    res.json({ parkingType });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
 
-// Get parking lot availability for a specific date
-exports.getParkingLotAvailability = async (req, res) => {
+// Get parking type availability for a specific date
+exports.getParkingTypeAvailability = async (req, res) => {
   try {
     const { id } = req.params;
     const { date } = req.query;
 
-    const parkingLot = await ParkingLot.findById(id);
-    if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
     }
 
     if (!date) {
@@ -66,7 +66,7 @@ exports.getParkingLotAvailability = async (req, res) => {
 
     // Count overlapping bookings for this specific day
     const overlappingBookings = await Booking.countDocuments({
-      parkingLot: parkingLot._id,
+      parkingType: parkingType._id,
       status: { $in: ['pending', 'confirmed', 'checked-in'] },
       $or: [
         {
@@ -76,16 +76,106 @@ exports.getParkingLotAvailability = async (req, res) => {
       ]
     });
 
-    const availableSpaces = Math.max(0, parkingLot.totalSpaces - overlappingBookings);
+    const availableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
 
     res.json({
-      parkingLotId: parkingLot._id,
+      parkingTypeId: parkingType._id,
       date: date,
-      totalSpaces: parkingLot.totalSpaces,
+      totalSpaces: parkingType.totalSpaces,
       availableSpaces: availableSpaces,
       occupiedSpaces: overlappingBookings,
       isAvailable: availableSpaces > 0
     });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Create parking type
+exports.createParkingType = async (req, res) => {
+  try {
+    const {
+      name,
+      type,
+      totalSpaces,
+      basePrice,
+      pricePerDay,
+      description,
+      location,
+      features,
+      operatingHours
+    } = req.body;
+
+    const parkingType = await ParkingType.create({
+      name,
+      type,
+      totalSpaces,
+      availableSpaces: totalSpaces,
+      basePrice,
+      pricePerDay,
+      description,
+      location,
+      features,
+      operatingHours
+    });
+
+    res.status(201).json({
+      message: 'Tạo loại bãi đậu xe thành công',
+      parkingType
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Update parking type
+exports.updateParkingType = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const parkingType = await ParkingType.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true }
+    );
+
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    res.json({
+      message: 'Cập nhật loại bãi đậu xe thành công',
+      parkingType
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Delete parking type
+exports.deleteParkingType = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if there are active bookings
+    const activeBookings = await Booking.find({
+      parkingType: id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] }
+    });
+
+    if (activeBookings.length > 0) {
+      return res.status(400).json({ 
+        message: 'Không thể xóa loại bãi đậu xe có đặt chỗ đang hoạt động' 
+      });
+    }
+
+    const parkingType = await ParkingType.findByIdAndDelete(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    res.json({ message: 'Xóa loại bãi đậu xe thành công' });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }

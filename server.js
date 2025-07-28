@@ -8,17 +8,20 @@ require('dotenv').config();
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
-app.use(compression());
-
 // CORS configuration - allow all origins for simplicity
 app.use(cors({
   origin: true, // Allow all origins
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
+
+// Security middleware
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false
+}));
+app.use(compression());
 
 // Rate limiting
 // const limiter = rateLimit({
@@ -57,6 +60,16 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/addon-services', addonRoutes);
 app.use('/api/discount-codes', discountRoutes);
 app.use('/api/system-settings', systemSettingsRoutes);
+
+// Debug: Log all registered routes
+console.log('🔧 Registered API routes:');
+console.log('  - /api/auth');
+console.log('  - /api/parking');
+console.log('  - /api/bookings');
+console.log('  - /api/admin');
+console.log('  - /api/addon-services');
+console.log('  - /api/discount-codes');
+console.log('  - /api/system-settings');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

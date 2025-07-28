@@ -152,38 +152,7 @@ const systemSettingsSchema = new mongoose.Schema({
     }
   },
   
-  // Parking lot types configuration
-  parkingLotTypes: [{
-    type: {
-      type: String,
-      enum: ['indoor', 'outdoor', 'disabled'],
-      required: true
-    },
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    icon: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    description: {
-      type: String,
-      trim: true
-    },
-    isActive: {
-      type: Boolean,
-      default: true
-    }
-  }],
-  
-  // Default parking lot types
-  defaultParkingLotTypes: {
-    type: Boolean,
-    default: true
-  }
+
 }, {
   timestamps: true
 });
@@ -192,40 +161,11 @@ const systemSettingsSchema = new mongoose.Schema({
 systemSettingsSchema.statics.getSettings = async function() {
   let settings = await this.findOne();
   if (!settings) {
-    settings = await this.create({
-      parkingLotTypes: [
-        {
-          type: 'indoor',
-          name: 'Trong nhà',
-          icon: '🏢',
-          description: 'Bãi đậu xe trong nhà có mái che'
-        },
-        {
-          type: 'outdoor',
-          name: 'Ngoài trời',
-          icon: '🌤',
-          description: 'Bãi đậu xe ngoài trời'
-        },
-        {
-          type: 'disabled',
-          name: 'Khu vực dành cho người khuyết tật',
-          icon: '♿️',
-          description: 'Bãi đậu xe dành riêng cho người khuyết tật'
-        }
-      ]
-    });
+    settings = await this.create({});
   }
   return settings;
 };
 
-// Method to get parking lot type by type
-systemSettingsSchema.methods.getParkingLotType = function(type) {
-  return this.parkingLotTypes.find(pt => pt.type === type && pt.isActive);
-};
 
-// Method to get all active parking lot types
-systemSettingsSchema.methods.getActiveParkingLotTypes = function() {
-  return this.parkingLotTypes.filter(pt => pt.isActive);
-};
 
 module.exports = mongoose.model('SystemSettings', systemSettingsSchema); 

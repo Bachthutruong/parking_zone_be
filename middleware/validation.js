@@ -17,7 +17,7 @@ const handleValidationErrors = (req, res, next) => {
 
 // Booking validation
 const validateBooking = [
-  body('parkingLotId')
+  body('parkingTypeId')
     .isMongoId()
     .withMessage('ID bãi đậu xe không hợp lệ'),
   
@@ -125,6 +125,31 @@ const validateBookingSearch = [
     .custom((value) => {
       if (!value.phone && !value.licensePlate) {
         throw new Error('Phải nhập số điện thoại hoặc biển số xe');
+      }
+      return true;
+    }),
+  
+  handleValidationErrors
+];
+
+// Check availability validation
+const validateCheckAvailability = [
+  body('parkingTypeId')
+    .isMongoId()
+    .withMessage('ID bãi đậu xe không hợp lệ'),
+  
+  body('checkInTime')
+    .isISO8601()
+    .withMessage('Thời gian vào bãi không hợp lệ'),
+  
+  body('checkOutTime')
+    .isISO8601()
+    .withMessage('Thời gian rời bãi không hợp lệ')
+    .custom((value, { req }) => {
+      const checkIn = new Date(req.body.checkInTime);
+      const checkOut = new Date(value);
+      if (checkOut <= checkIn) {
+        throw new Error('Thời gian rời bãi phải sau thời gian vào bãi');
       }
       return true;
     }),
@@ -302,6 +327,34 @@ const validateSystemSettings = [
   handleValidationErrors
 ];
 
+// Parking type validation
+const validateParkingType = [
+  body('name')
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Tên bãi đậu xe phải từ 2-100 ký tự'),
+  
+  body('code')
+    .trim()
+    .isLength({ min: 1, max: 20 })
+    .withMessage('Mã bãi đậu xe phải từ 1-20 ký tự'),
+  
+  body('type')
+    .optional()
+    .isIn(['indoor', 'outdoor', 'disabled'])
+    .withMessage('Loại bãi đậu xe không hợp lệ'),
+  
+  body('totalSpaces')
+    .isInt({ min: 1, max: 1000 })
+    .withMessage('Tổng số chỗ đậu phải từ 1-1000'),
+  
+  body('pricePerDay')
+    .isFloat({ min: 0 })
+    .withMessage('Giá theo ngày phải là số dương'),
+  
+  handleValidationErrors
+];
+
 // ID parameter validation
 const validateId = [
   param('id')
@@ -315,11 +368,13 @@ module.exports = {
   handleValidationErrors,
   validateBooking,
   validateBookingSearch,
+  validateCheckAvailability,
   validateRegistration,
   validateLogin,
   validateParkingLot,
   validateAddonService,
   validateDiscountCode,
   validateSystemSettings,
+  validateParkingType,
   validateId
 }; 

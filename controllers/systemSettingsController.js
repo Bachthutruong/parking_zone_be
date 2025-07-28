@@ -87,54 +87,11 @@ const updateBookingTerms = async (req, res) => {
   }
 };
 
-// Get parking lot types configuration
-const getParkingLotTypes = async (req, res) => {
-  try {
-    const settings = await SystemSettings.getSettings();
-    res.json({
-      success: true,
-      types: settings.getActiveParkingLotTypes()
-    });
-  } catch (error) {
-    console.error('Error getting parking lot types:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Không thể tải cấu hình loại bãi đậu xe'
-    });
-  }
-};
 
-// Update parking lot types configuration (admin only)
-const updateParkingLotTypes = async (req, res) => {
-  try {
-    const { types } = req.body;
-    const settings = await SystemSettings.getSettings();
-    
-    const updatedSettings = await SystemSettings.findByIdAndUpdate(
-      settings._id,
-      { parkingLotTypes: types },
-      { new: true, runValidators: true }
-    );
-    
-    res.json({
-      success: true,
-      message: 'Cập nhật cấu hình loại bãi đậu xe thành công',
-      types: updatedSettings.getActiveParkingLotTypes()
-    });
-  } catch (error) {
-    console.error('Error updating parking lot types:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Không thể cập nhật cấu hình loại bãi đậu xe'
-    });
-  }
-};
 
 module.exports = {
   getSystemSettings,
   updateSystemSettings,
   getBookingTerms,
-  updateBookingTerms,
-  getParkingLotTypes,
-  updateParkingLotTypes
+  updateBookingTerms
 }; 

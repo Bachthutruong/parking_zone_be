@@ -1,5 +1,5 @@
 const Booking = require('../models/Booking');
-const ParkingLot = require('../models/ParkingLot');
+const ParkingType = require('../models/ParkingType');
 const AddonService = require('../models/AddonService');
 const DiscountCode = require('../models/DiscountCode');
 const SystemSettings = require('../models/SystemSettings');
@@ -26,9 +26,9 @@ exports.getDashboardStats = async (req, res) => {
     }, 0);
 
     // Total parking spaces and available spaces
-    const parkingLots = await ParkingLot.find({ isActive: true });
-    const totalSpaces = parkingLots.reduce((sum, lot) => sum + lot.totalSpaces, 0);
-    const availableSpaces = parkingLots.reduce((sum, lot) => sum + lot.availableSpaces, 0);
+    const parkingTypes = await ParkingType.find({ isActive: true });
+    const totalSpaces = parkingTypes.reduce((sum, type) => sum + type.totalSpaces, 0);
+    const availableSpaces = parkingTypes.reduce((sum, type) => sum + type.availableSpaces, 0);
 
     // Currently parked vehicles
     const parkedVehicles = await Booking.countDocuments({
@@ -43,7 +43,7 @@ exports.getDashboardStats = async (req, res) => {
 
     // Recent bookings
     const recentBookings = await Booking.find()
-      .populate('parkingLot', 'name type')
+      .populate('parkingType', 'name type')
       .populate('user', 'name email')
       .sort({ createdAt: -1 })
       .limit(5);
@@ -72,7 +72,7 @@ exports.getAllBookings = async (req, res) => {
       dateFrom,
       dateTo,
       search,
-      parkingLotId
+      parkingTypeId
     } = req.query;
 
     const query = {};
@@ -103,15 +103,15 @@ exports.getAllBookings = async (req, res) => {
       ];
     }
 
-    // Parking lot filter
-    if (parkingLotId) {
-      query.parkingLot = parkingLotId;
+    // Parking type filter
+    if (parkingTypeId) {
+      query.parkingType = parkingTypeId;
     }
 
     const skip = (page - 1) * limit;
 
     const bookings = await Booking.find(query)
-      .populate('parkingLot', 'name type')
+      .populate('parkingType', 'name type')
       .populate('addonServices.service', 'name icon price')
       .populate('user', 'name email isVIP')
       .sort({ createdAt: -1 })
@@ -205,7 +205,8 @@ exports.getAllUsers = async (req, res) => {
       limit = 10,
       search,
       role,
-      isVIP
+      isVIP,
+      email
     } = req.query;
 
     const query = {};
@@ -216,6 +217,10 @@ exports.getAllUsers = async (req, res) => {
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } }
       ];
+    }
+
+    if (email) {
+      query.email = email;
     }
 
     if (role) {
@@ -248,27 +253,142 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
+// Get user statistics with real booking data
+exports.getUserStats = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Get user
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
+    // Get all bookings for this user
+    const bookings = await Booking.find({ user: userId })
+      .populate('parkingType', 'name type')
+      .sort({ createdAt: -1 });
+
+    // Calculate statistics
+    const totalBookings = bookings.length;
+    const totalSpent = bookings.reduce((sum, booking) => sum + booking.finalAmount, 0);
+    const averageSpent = totalBookings > 0 ? totalSpent / totalBookings : 0;
+    
+    // Get last booking date
+    const lastBooking = bookings.length > 0 ? bookings[0].createdAt : null;
+    
+    // Calculate booking trend (compare last 30 days vs previous 30 days)
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    
+    const recentBookings = bookings.filter(b => b.createdAt >= thirtyDaysAgo);
+    const previousBookings = bookings.filter(b => 
+      b.createdAt >= sixtyDaysAgo && b.createdAt < thirtyDaysAgo
+    );
+    
+    let bookingTrend = 'stable';
+    if (recentBookings.length > previousBookings.length) {
+      bookingTrend = 'up';
+    } else if (recentBookings.length < previousBookings.length) {
+      bookingTrend = 'down';
+    }
+
+    // Get recent bookings (last 5)
+    const recentBookingsList = bookings.slice(0, 5);
+
+    // Calculate additional stats
+    const completedBookings = bookings.filter(b => b.status === 'checked-out').length;
+    const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length;
+    const pendingBookings = bookings.filter(b => b.status === 'pending').length;
+    const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length;
+
+    // Calculate average duration
+    const completedBookingsWithDuration = bookings.filter(b => b.status === 'checked-out');
+    const totalDuration = completedBookingsWithDuration.reduce((sum, booking) => {
+      const duration = new Date(booking.actualCheckOutTime || booking.checkOutTime) - 
+                      new Date(booking.actualCheckInTime || booking.checkInTime);
+      return sum + duration;
+    }, 0);
+    const averageDuration = completedBookingsWithDuration.length > 0 
+      ? totalDuration / completedBookingsWithDuration.length / (1000 * 60 * 60 * 24) // Convert to days
+      : 0;
+
+    // Calculate VIP savings
+    const vipBookings = bookings.filter(b => b.isVIP);
+    const totalVipSavings = vipBookings.reduce((sum, booking) => sum + booking.discountAmount, 0);
+
+    const stats = {
+      totalBookings,
+      totalSpent,
+      averageSpent,
+      lastBooking,
+      bookingTrend,
+      recentBookings: recentBookingsList,
+      completedBookings,
+      cancelledBookings,
+      pendingBookings,
+      confirmedBookings,
+      averageDuration: Math.round(averageDuration * 100) / 100, // Round to 2 decimal places
+      totalVipSavings,
+      vipBookingsCount: vipBookings.length
+    };
+
+    res.json({ stats });
+  } catch (error) {
+    console.error('Error getting user stats:', error);
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Update user VIP status
 exports.updateUserVIP = async (req, res) => {
   try {
     const { id } = req.params;
     const { isVIP, vipDiscount } = req.body;
 
+    console.log('🔍 Backend VIP Update:', { id, isVIP, vipDiscount, body: req.body });
+
+    // Validate input
+    if (typeof isVIP !== 'boolean') {
+      return res.status(400).json({ message: 'isVIP phải là boolean' });
+    }
+
+    if (isVIP && (vipDiscount === undefined || vipDiscount < 0 || vipDiscount > 100)) {
+      return res.status(400).json({ message: 'vipDiscount phải từ 0 đến 100 khi isVIP là true' });
+    }
+
+    // Prepare update data
+    const updateData = { isVIP };
+    
+    // Only include vipDiscount if it's provided and user is VIP
+    if (isVIP && vipDiscount !== undefined) {
+      updateData.vipDiscount = vipDiscount;
+    } else if (!isVIP) {
+      // Reset vipDiscount to 0 when removing VIP status
+      updateData.vipDiscount = 0;
+    }
+
+    console.log('🔍 Update Data:', updateData);
+
     const user = await User.findByIdAndUpdate(
       id,
-      { isVIP, vipDiscount },
-      { new: true }
+      updateData,
+      { new: true, runValidators: true }
     ).select('-password');
 
     if (!user) {
       return res.status(404).json({ message: 'Không tìm thấy người dùng' });
     }
 
+    console.log('🔍 Updated User:', user);
+
     res.json({
       message: 'Cập nhật VIP thành công',
       user
     });
   } catch (error) {
+    console.error('🔍 VIP Update Error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -440,33 +560,32 @@ exports.updateSystemSettings = async (req, res) => {
   }
 };
 
-// Get parking lot statistics
-exports.getParkingLotStats = async (req, res) => {
+// Get parking type statistics
+exports.getParkingTypeStats = async (req, res) => {
   try {
-    const parkingLots = await ParkingLot.find({ isActive: true });
+    const parkingTypes = await ParkingType.find({ isActive: true });
     
-    const stats = await Promise.all(parkingLots.map(async (lot) => {
+    const stats = await Promise.all(parkingTypes.map(async (type) => {
       const bookings = await Booking.find({
-        parkingLot: lot._id,
+        parkingType: type._id,
         status: { $in: ['confirmed', 'checked-in'] }
       });
 
-      const occupancyRate = ((lot.totalSpaces - lot.availableSpaces) / lot.totalSpaces * 100).toFixed(2);
+      const occupancyRate = ((type.totalSpaces - type.availableSpaces) / type.totalSpaces * 100).toFixed(2);
       
       return {
-        _id: lot._id,
-        name: lot.name,
-        type: lot.type,
-        totalSpaces: lot.totalSpaces,
-        availableSpaces: lot.availableSpaces,
+        _id: type._id,
+        name: type.name,
+        type: type.type,
+        totalSpaces: type.totalSpaces,
+        availableSpaces: type.availableSpaces,
         occupancyRate: parseFloat(occupancyRate),
         currentBookings: bookings.length,
-        basePrice: lot.basePrice,
-        pricePerHour: lot.pricePerHour
+        pricePerDay: type.pricePerDay
       };
     }));
 
-    res.json({ parkingLots: stats });
+    res.json({ parkingTypes: stats });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
@@ -483,21 +602,21 @@ exports.getCurrentParkingStatus = async (req, res) => {
     // Currently parked vehicles
     const parkedVehicles = await Booking.find({
       status: { $in: ['checked-in', 'confirmed'] }
-    }).populate('parkingLot', 'name type')
+    }).populate('parkingType', 'name type')
       .populate('user', 'name phone');
 
     // Vehicles arriving today
     const arrivingToday = await Booking.find({
       checkInTime: { $gte: today, $lt: tomorrow },
       status: { $in: ['pending', 'confirmed'] }
-    }).populate('parkingLot', 'name type')
+    }).populate('parkingType', 'name type')
       .populate('user', 'name phone');
 
     // Vehicles leaving today
     const leavingToday = await Booking.find({
       checkOutTime: { $gte: today, $lt: tomorrow },
       status: { $in: ['checked-in', 'confirmed'] }
-    }).populate('parkingLot', 'name type')
+    }).populate('parkingType', 'name type')
       .populate('user', 'name phone');
 
     res.json({
@@ -556,7 +675,7 @@ exports.updateBookingStatus = async (req, res) => {
 exports.createManualBooking = async (req, res) => {
   try {
     const {
-      parkingLotId,
+      parkingTypeId,
       checkInTime,
       checkOutTime,
       driverName,
@@ -570,10 +689,10 @@ exports.createManualBooking = async (req, res) => {
       createdBy
     } = req.body;
 
-    // Check if parking lot is available
-    const parkingLot = await ParkingLot.findById(parkingLotId);
-    if (!parkingLot || !parkingLot.isActive) {
-      return res.status(400).json({ message: 'Bãi đậu xe không khả dụng' });
+    // Check if parking type is available
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType || !parkingType.isActive) {
+      return res.status(400).json({ message: 'Loại bãi đậu xe không khả dụng' });
     }
 
     // Find or create user
@@ -590,7 +709,7 @@ exports.createManualBooking = async (req, res) => {
 
     // Calculate price
     const priceCalculation = await calculateBookingPrice({
-      parkingLotId,
+      parkingTypeId,
       checkInTime,
       checkOutTime,
       addonServices,
@@ -600,7 +719,7 @@ exports.createManualBooking = async (req, res) => {
     // Create booking
     const booking = await Booking.create({
       user: user._id,
-      parkingLot: parkingLotId,
+      parkingType: parkingTypeId,
       checkInTime,
       checkOutTime,
       driverName,
@@ -621,8 +740,8 @@ exports.createManualBooking = async (req, res) => {
       createdBy
     });
 
-    // Update parking lot availability
-    await ParkingLot.findByIdAndUpdate(parkingLotId, {
+    // Update parking type availability
+    await ParkingType.findByIdAndUpdate(parkingTypeId, {
       $inc: { availableSpaces: -1 }
     });
 
@@ -642,19 +761,19 @@ exports.createManualBooking = async (req, res) => {
 
 // Helper function to calculate booking price
 async function calculateBookingPrice({
-  parkingLotId,
+  parkingTypeId,
   checkInTime,
   checkOutTime,
   addonServices = [],
   isVIP = false
 }) {
-  const parkingLot = await ParkingLot.findById(parkingLotId);
+  const parkingType = await ParkingType.findById(parkingTypeId);
   const checkIn = new Date(checkInTime);
   const checkOut = new Date(checkOutTime);
-  const durationHours = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60));
-
-  const basePrice = parkingLot.getPriceForDate(checkIn);
-  const totalBasePrice = basePrice * durationHours;
+  
+  // Calculate pricing using new day-based logic
+  const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+  const totalBasePrice = pricing.totalPrice;
 
   let addonTotal = 0;
   const addonDetails = [];
@@ -682,8 +801,8 @@ async function calculateBookingPrice({
   const finalAmount = totalAmount - vipDiscount;
 
   return {
-    basePrice,
-    durationHours,
+    pricePerDay: parkingType.pricePerDay,
+    durationDays: pricing.durationDays,
     totalBasePrice,
     addonTotal,
     addonDetails,
@@ -860,9 +979,9 @@ exports.deleteParkingLot = async (req, res) => {
 // Get all parking types
 exports.getAllParkingTypes = async (req, res) => {
   try {
-    const parkingTypes = await SystemSettings.findOne().select('parkingLotTypes');
+    const parkingTypes = await ParkingType.find({});
     res.json({
-      parkingTypes: parkingTypes?.parkingLotTypes || []
+      parkingTypes: parkingTypes
     });
   } catch (error) {
     res.status(500).json({ 
@@ -875,35 +994,29 @@ exports.getAllParkingTypes = async (req, res) => {
 // Create parking type
 exports.createParkingType = async (req, res) => {
   try {
-    const { name, type, icon, description, basePrice, maxSpots, features, isActive } = req.body;
+    const { name, code, type, icon, description, totalSpaces, pricePerDay, isActive, features } = req.body;
 
-    const settings = await SystemSettings.findOne();
-    if (!settings) {
-      return res.status(404).json({ message: 'Không tìm thấy cài đặt hệ thống' });
-    }
-
-    // Check if type already exists
-    const existingType = settings.parkingLotTypes.find(pt => pt.type === type);
+    // Check if code already exists
+    const existingType = await ParkingType.findOne({ code });
     if (existingType) {
-      return res.status(400).json({ message: 'Loại bãi đậu xe đã tồn tại' });
+      return res.status(400).json({ message: 'Mã bãi đậu xe đã tồn tại' });
     }
 
-    const newType = {
+    const newType = await ParkingType.create({
       name,
-      type,
-      icon,
+      code,
+      type: type || 'indoor',
+      icon: icon || '🏢',
       description,
-      basePrice,
-      maxSpots,
-      features: features || [],
-      isActive: isActive !== false
-    };
-
-    settings.parkingLotTypes.push(newType);
-    await settings.save();
+      totalSpaces: totalSpaces || 100,
+      availableSpaces: totalSpaces || 100,
+      pricePerDay: pricePerDay || 100,
+      isActive: isActive !== false,
+      features: features || []
+    });
 
     res.status(201).json({
-      message: 'Tạo loại bãi đậu xe thành công',
+      message: 'Tạo bãi đậu xe thành công',
       parkingType: newType
     });
   } catch (error) {
@@ -920,22 +1033,27 @@ exports.updateParkingType = async (req, res) => {
     const { type } = req.params;
     const updateData = req.body;
 
-    const settings = await SystemSettings.findOne();
-    if (!settings) {
-      return res.status(404).json({ message: 'Không tìm thấy cài đặt hệ thống' });
+    // Try to find by _id first, then by code
+    let parkingType = await ParkingType.findById(type);
+    if (!parkingType) {
+      parkingType = await ParkingType.findOne({ code: type });
+    }
+    
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
     }
 
-    const typeIndex = settings.parkingLotTypes.findIndex(pt => pt.type === type);
-    if (typeIndex === -1) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    // If the current parking type doesn't have a code, don't require it in update
+    if (!parkingType.code && !updateData.code) {
+      delete updateData.code; // Remove code from update if it's not provided and current is null
     }
 
-    settings.parkingLotTypes[typeIndex] = { ...settings.parkingLotTypes[typeIndex], ...updateData };
-    await settings.save();
+    Object.assign(parkingType, updateData);
+    await parkingType.save();
 
     res.json({
-      message: 'Cập nhật loại bãi đậu xe thành công',
-      parkingType: settings.parkingLotTypes[typeIndex]
+      message: 'Cập nhật bãi đậu xe thành công',
+      parkingType: parkingType
     });
   } catch (error) {
     res.status(500).json({ 
@@ -950,28 +1068,22 @@ exports.deleteParkingType = async (req, res) => {
   try {
     const { type } = req.params;
 
-    const settings = await SystemSettings.findOne();
-    if (!settings) {
-      return res.status(404).json({ message: 'Không tìm thấy cài đặt hệ thống' });
-    }
-
-    const typeIndex = settings.parkingLotTypes.findIndex(pt => pt.type === type);
-    if (typeIndex === -1) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    const parkingType = await ParkingType.findOne({ code: type });
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
     }
 
     // Check if parking type is being used
-    const usedParkingLots = await ParkingLot.find({ type });
-    if (usedParkingLots.length > 0) {
+    const usedBookings = await Booking.find({ parkingType: parkingType._id });
+    if (usedBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa loại bãi đậu xe đang được sử dụng' 
+        message: 'Không thể xóa bãi đậu xe đang được sử dụng' 
       });
     }
 
-    settings.parkingLotTypes.splice(typeIndex, 1);
-    await settings.save();
+    await ParkingType.findByIdAndDelete(parkingType._id);
 
-    res.json({ message: 'Xóa loại bãi đậu xe thành công' });
+    res.json({ message: 'Xóa bãi đậu xe thành công' });
   } catch (error) {
     res.status(500).json({ 
       message: 'Lỗi server', 
@@ -1572,6 +1684,105 @@ exports.deleteNotificationTemplate = async (req, res) => {
     
     res.json({
       message: 'Xóa mẫu thông báo thành công'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message 
+    });
+  }
+};
+
+// Test notification
+exports.testNotification = async (req, res) => {
+  try {
+    const { templateName, type, recipient, variables } = req.body;
+    
+    if (!templateName || !type || !recipient) {
+      return res.status(400).json({ 
+        message: 'Thiếu thông tin bắt buộc' 
+      });
+    }
+
+    const notificationService = require('../utils/notificationService');
+    const result = await notificationService.testNotification(templateName, type, recipient, variables);
+    
+    if (result.success) {
+      res.json({
+        message: 'Gửi thông báo thành công',
+        result
+      });
+    } else {
+      res.status(400).json({
+        message: 'Không thể gửi thông báo',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message 
+    });
+  }
+};
+
+// Send notification to multiple users
+exports.sendBulkNotification = async (req, res) => {
+  try {
+    const { templateName, type, recipients, variables } = req.body;
+    
+    if (!templateName || !type || !recipients || !Array.isArray(recipients)) {
+      return res.status(400).json({ 
+        message: 'Thiếu thông tin bắt buộc' 
+      });
+    }
+
+    const notificationService = require('../utils/notificationService');
+    const results = [];
+
+    for (const recipient of recipients) {
+      const result = await notificationService.testNotification(templateName, type, recipient, variables);
+      results.push({ recipient, ...result });
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.length - successCount;
+
+    res.json({
+      message: `Gửi thông báo hoàn tất: ${successCount} thành công, ${failureCount} thất bại`,
+      results
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message 
+    });
+  }
+};
+
+// Get notification statistics
+exports.getNotificationStats = async (req, res) => {
+  try {
+    const stats = await NotificationTemplate.aggregate([
+      {
+        $group: {
+          _id: '$type',
+          count: { $sum: 1 },
+          activeCount: {
+            $sum: { $cond: ['$isActive', 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    const totalTemplates = await NotificationTemplate.countDocuments();
+    const activeTemplates = await NotificationTemplate.countDocuments({ isActive: true });
+
+    res.json({
+      stats,
+      total: totalTemplates,
+      active: activeTemplates,
+      inactive: totalTemplates - activeTemplates
     });
   } catch (error) {
     res.status(500).json({ 

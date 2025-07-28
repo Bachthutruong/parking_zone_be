@@ -2,41 +2,62 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 // Import models
-const SystemSettings = require('../models/SystemSettings');
+const ParkingType = require('../models/ParkingType');
 
 const parkingTypes = [
   {
-    name: 'Trong nhà',
+    name: 'Bãi đậu xe trong nhà',
     type: 'indoor',
-    description: 'Bãi đậu xe trong nhà có mái che',
+    description: 'Bãi đậu xe trong nhà có mái che, an toàn và giám sát 24/7',
     icon: '🏢',
     color: '#3B82F6',
     isActive: true,
+    totalSpaces: 50,
+    availableSpaces: 50,
     basePrice: 100,
-    maxSpots: 50,
-    features: ['Mái che', 'An toàn', 'Giám sát 24/7']
+    pricePerDay: 100,
+    location: 'Tầng hầm B1',
+    features: ['covered', 'security', 'camera', 'lighting'],
+    operatingHours: {
+      open: '00:00',
+      close: '23:59'
+    }
   },
   {
-    name: 'Ngoài trời',
+    name: 'Bãi đậu xe ngoài trời',
     type: 'outdoor',
-    description: 'Bãi đậu xe ngoài trời',
+    description: 'Bãi đậu xe ngoài trời rộng rãi, dễ tiếp cận',
     icon: '☀️',
     color: '#10B981',
     isActive: true,
+    totalSpaces: 100,
+    availableSpaces: 100,
     basePrice: 80,
-    maxSpots: 100,
-    features: ['Rộng rãi', 'Dễ tiếp cận', 'Giá rẻ']
+    pricePerDay: 80,
+    location: 'Khu vực A',
+    features: ['lighting', 'accessible'],
+    operatingHours: {
+      open: '00:00',
+      close: '23:59'
+    }
   },
   {
     name: 'Khu vực dành cho người khuyết tật',
     type: 'disabled',
-    description: 'Bãi đậu xe dành riêng cho người khuyết tật',
+    description: 'Bãi đậu xe dành riêng cho người khuyết tật với thiết kế đặc biệt',
     icon: '♿',
     color: '#F59E0B',
     isActive: true,
+    totalSpaces: 20,
+    availableSpaces: 20,
     basePrice: 60,
-    maxSpots: 20,
-    features: ['Thiết kế đặc biệt', 'Dễ tiếp cận', 'Ưu tiên']
+    pricePerDay: 60,
+    location: 'Khu vực ưu tiên',
+    features: ['accessible', 'security'],
+    operatingHours: {
+      open: '00:00',
+      close: '23:59'
+    }
   }
 ];
 
@@ -46,24 +67,19 @@ async function initParkingTypes() {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
 
-    // Get or create system settings
-    let systemSettings = await SystemSettings.findOne();
-    if (!systemSettings) {
-      systemSettings = new SystemSettings({
-        parkingLotTypes: parkingTypes
-      });
-    } else {
-      // Update existing parking types
-      systemSettings.parkingLotTypes = parkingTypes;
-    }
+    // Clear existing parking types
+    await ParkingType.deleteMany({});
+    console.log('Cleared existing parking types');
 
-    await systemSettings.save();
+    // Create new parking types
+    const createdTypes = await ParkingType.insertMany(parkingTypes);
     console.log('Parking types initialized successfully');
 
     // Log the created types
     console.log('Created parking types:');
-    parkingTypes.forEach(type => {
+    createdTypes.forEach(type => {
       console.log(`- ${type.name} (${type.type}): ${type.description}`);
+      console.log(`  Spaces: ${type.totalSpaces}, Price: ${type.pricePerDay}/day`);
     });
 
   } catch (error) {
