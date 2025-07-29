@@ -138,6 +138,20 @@ const systemSettingsSchema = new mongoose.Schema({
       max: 100
     }
   },
+
+  // Luggage settings
+  luggageSettings: {
+    freeLuggageCount: {
+      type: Number,
+      default: 1, // Number of free luggage items
+      min: 0
+    },
+    luggagePricePerItem: {
+      type: Number,
+      default: 100, // Price per additional luggage item
+      min: 0
+    }
+  },
   
   // System settings
   maintenanceMode: {

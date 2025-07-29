@@ -118,11 +118,17 @@ exports.getAllBookings = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    // Add bookingNumber to each booking
+    const bookingsWithNumber = bookings.map(booking => ({
+      ...booking.toObject(),
+      bookingNumber: booking.bookingNumber
+    }));
+
     const total = await Booking.countDocuments(query);
     const totalPages = Math.ceil(total / limit);
 
     res.json({
-      bookings,
+      bookings: bookingsWithNumber,
       total,
       totalPages,
       currentPage: parseInt(page)
@@ -358,6 +364,12 @@ exports.updateUserVIP = async (req, res) => {
       return res.status(400).json({ message: 'vipDiscount phải từ 0 đến 100 khi isVIP là true' });
     }
 
+    // Get user first to check current status
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
     // Prepare update data
     const updateData = { isVIP };
     
@@ -369,23 +381,29 @@ exports.updateUserVIP = async (req, res) => {
       updateData.vipDiscount = 0;
     }
 
+    // Generate VIP code if becoming VIP and doesn't have one
+    if (isVIP && !user.vipCode) {
+      updateData.vipCode = user.generateVIPCode();
+      updateData.vipCreatedAt = new Date();
+    } else if (!isVIP) {
+      // Remove VIP code when removing VIP status
+      updateData.vipCode = null;
+      updateData.vipCreatedAt = null;
+    }
+
     console.log('🔍 Update Data:', updateData);
 
-    const user = await User.findByIdAndUpdate(
+    const updatedUser = await User.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     ).select('-password');
 
-    if (!user) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
-    }
-
-    console.log('🔍 Updated User:', user);
+    console.log('🔍 Updated User:', updatedUser);
 
     res.json({
       message: 'Cập nhật VIP thành công',
-      user
+      user: updatedUser
     });
   } catch (error) {
     console.error('🔍 VIP Update Error:', error);
@@ -399,15 +417,27 @@ exports.updateUser = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
+    // Get user first to check current status
+    const existingUser = await User.findById(id);
+    if (!existingUser) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+    }
+
+    // Handle VIP code generation if VIP status is being set
+    if (updateData.isVIP && !existingUser.vipCode) {
+      updateData.vipCode = existingUser.generateVIPCode();
+      updateData.vipCreatedAt = new Date();
+    } else if (updateData.isVIP === false) {
+      // Remove VIP code when removing VIP status
+      updateData.vipCode = null;
+      updateData.vipCreatedAt = null;
+    }
+
     const user = await User.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     ).select('-password');
-
-    if (!user) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
-    }
 
     res.json({
       message: 'Cập nhật thông tin người dùng thành công',
@@ -420,6 +450,8 @@ exports.updateUser = async (req, res) => {
         address: user.address,
         isVIP: user.isVIP,
         vipDiscount: user.vipDiscount,
+        vipCode: user.vipCode,
+        vipCreatedAt: user.vipCreatedAt,
         notes: user.notes
       }
     });
@@ -455,8 +487,8 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    // Create new user
-    const user = await User.create({
+    // Prepare user data
+    const userData = {
       name,
       email,
       phone,
@@ -468,7 +500,17 @@ exports.createUser = async (req, res) => {
       vipDiscount,
       notes,
       isActive: true
-    });
+    };
+
+    // Generate VIP code if user is VIP
+    if (isVIP) {
+      const tempUser = new User(userData);
+      userData.vipCode = tempUser.generateVIPCode();
+      userData.vipCreatedAt = new Date();
+    }
+
+    // Create new user
+    const user = await User.create(userData);
 
     // Remove password from response
     const userResponse = user.toObject();
@@ -608,14 +650,14 @@ exports.getCurrentParkingStatus = async (req, res) => {
     // Vehicles arriving today
     const arrivingToday = await Booking.find({
       checkInTime: { $gte: today, $lt: tomorrow },
-      status: { $in: ['pending', 'confirmed'] }
+      status: { $in: ['pending'] }
     }).populate('parkingType', 'name type')
       .populate('user', 'name phone');
 
     // Vehicles leaving today
     const leavingToday = await Booking.find({
       checkOutTime: { $gte: today, $lt: tomorrow },
-      status: { $in: ['checked-in', 'confirmed'] }
+      status: { $in: ['checked-in'] }
     }).populate('parkingType', 'name type')
       .populate('user', 'name phone');
 
@@ -645,6 +687,29 @@ exports.updateBookingStatus = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
     }
 
+    // Prevent status changes for completed bookings
+    if (booking.status === 'checked-out' || booking.status === 'cancelled') {
+      return res.status(400).json({ 
+        message: 'Không thể thay đổi trạng thái của đặt chỗ đã hoàn thành hoặc đã hủy' 
+      });
+    }
+
+    // Validate status transitions
+    const validTransitions = {
+      'pending': ['checked-in', 'cancelled'],
+      'confirmed': ['checked-in', 'cancelled'],
+      'checked-in': ['checked-out']
+    };
+
+    const currentStatus = booking.status;
+    const allowedTransitions = validTransitions[currentStatus] || [];
+    
+    if (!allowedTransitions.includes(status)) {
+      return res.status(400).json({ 
+        message: `Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"` 
+      });
+    }
+
     // Update booking status
     booking.status = status;
     
@@ -663,7 +728,8 @@ exports.updateBookingStatus = async (req, res) => {
         _id: booking._id,
         status: booking.status,
         actualCheckInTime: booking.actualCheckInTime,
-        actualCheckOutTime: booking.actualCheckOutTime
+        actualCheckOutTime: booking.actualCheckOutTime,
+        bookingNumber: booking.bookingNumber
       }
     });
   } catch (error) {
@@ -713,7 +779,8 @@ exports.createManualBooking = async (req, res) => {
       checkInTime,
       checkOutTime,
       addonServices,
-      isVIP: user.isVIP
+      isVIP: user.isVIP,
+      luggageCount
     });
 
     // Create booking
@@ -734,6 +801,7 @@ exports.createManualBooking = async (req, res) => {
       finalAmount: priceCalculation.finalAmount,
       isVIP: user.isVIP,
       vipDiscount: priceCalculation.vipDiscount,
+      status: 'pending',
       paymentStatus: 'paid',
       paymentMethod: 'cash',
       isManualBooking: true,
@@ -749,7 +817,7 @@ exports.createManualBooking = async (req, res) => {
       message: 'Tạo đặt chỗ thủ công thành công',
       booking: {
         _id: booking._id,
-        bookingNumber: `BK${booking._id.toString().slice(-6).toUpperCase()}`,
+        bookingNumber: booking.bookingNumber,
         status: booking.status,
         finalAmount: booking.finalAmount
       }
@@ -765,7 +833,8 @@ async function calculateBookingPrice({
   checkInTime,
   checkOutTime,
   addonServices = [],
-  isVIP = false
+  isVIP = false,
+  luggageCount = 0
 }) {
   const parkingType = await ParkingType.findById(parkingTypeId);
   const checkIn = new Date(checkInTime);
@@ -791,13 +860,23 @@ async function calculateBookingPrice({
     }
   }
 
+  // Calculate luggage fees
+  let luggageTotal = 0;
+  if (luggageCount > 0) {
+    const settings = await SystemSettings.getSettings();
+    const { freeLuggageCount, luggagePricePerItem } = settings.luggageSettings;
+    
+    const additionalLuggage = Math.max(0, luggageCount - freeLuggageCount);
+    luggageTotal = additionalLuggage * luggagePricePerItem;
+  }
+
   let vipDiscount = 0;
   if (isVIP) {
     const settings = await SystemSettings.getSettings();
-    vipDiscount = (totalBasePrice + addonTotal) * (settings.defaultVIPDiscount / 100);
+    vipDiscount = (totalBasePrice + addonTotal + luggageTotal) * (settings.defaultVIPDiscount / 100);
   }
 
-  const totalAmount = totalBasePrice + addonTotal;
+  const totalAmount = totalBasePrice + addonTotal + luggageTotal;
   const finalAmount = totalAmount - vipDiscount;
 
   return {
@@ -806,6 +885,7 @@ async function calculateBookingPrice({
     totalBasePrice,
     addonTotal,
     addonDetails,
+    luggageTotal,
     totalAmount,
     vipDiscount,
     finalAmount
@@ -1789,6 +1869,337 @@ exports.getNotificationStats = async (req, res) => {
       message: 'Lỗi server', 
       error: error.message 
     });
+  }
+};
+
+// Special pricing management
+exports.addSpecialPrice = async (req, res) => {
+  try {
+    const { parkingTypeId } = req.params;
+    const { startDate, endDate, price, reason, isActive } = req.body;
+    
+    if (!startDate || !endDate || !price || !reason || !reason.trim()) {
+      return res.status(400).json({ message: 'Thiếu thông tin bắt buộc. Vui lòng nhập đầy đủ ngày, giá và lý do' });
+    }
+
+    // Validate date format and logic
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+    }
+    
+    if (start >= end) {
+      return res.status(400).json({ message: 'Ngày kết thúc phải sau ngày bắt đầu' });
+    }
+    
+    if (start < new Date()) {
+      return res.status(400).json({ message: 'Ngày bắt đầu không thể trong quá khứ' });
+    }
+
+    // Validate price
+    const priceValue = parseFloat(price);
+    if (isNaN(priceValue) || priceValue <= 0) {
+      return res.status(400).json({ message: 'Giá phải là số dương' });
+    }
+
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    // Check if special price already exists for overlapping date range
+    const existingSpecialPrice = parkingType.specialPrices.find(sp => 
+      sp.isActive && 
+      ((new Date(startDate) <= sp.endDate && new Date(endDate) >= sp.startDate))
+    );
+
+    if (existingSpecialPrice) {
+      return res.status(400).json({ 
+        message: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
+        existingSpecialPrice: {
+          startDate: existingSpecialPrice.startDate,
+          endDate: existingSpecialPrice.endDate,
+          reason: existingSpecialPrice.reason
+        }
+      });
+    }
+
+    // Add special price
+    parkingType.specialPrices.push({
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      price: parseFloat(price),
+      reason: reason.trim(),
+      isActive: isActive !== false
+    });
+
+    await parkingType.save();
+
+    res.json({
+      message: 'Thêm giá đặc biệt thành công',
+      specialPrice: parkingType.specialPrices[parkingType.specialPrices.length - 1]
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Add multiple special prices (bulk)
+exports.addBulkSpecialPrices = async (req, res) => {
+  try {
+    const { parkingTypeId } = req.params;
+    const { specialPrices, forceOverride = false } = req.body;
+    
+    if (!Array.isArray(specialPrices) || specialPrices.length === 0) {
+      return res.status(400).json({ message: 'Danh sách giá đặc biệt không hợp lệ' });
+    }
+
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    const results = {
+      success: [],
+      failed: [],
+      skipped: []
+    };
+
+    for (const specialPriceData of specialPrices) {
+      const { startDate, endDate, price, reason, isActive } = specialPriceData;
+      
+      try {
+        // Validate required fields
+        if (!startDate || !endDate || !price || !reason || !reason.trim()) {
+          results.failed.push({
+            ...specialPriceData,
+            error: 'Thiếu thông tin bắt buộc. Vui lòng nhập đầy đủ ngày, giá và lý do'
+          });
+          continue;
+        }
+
+        // Validate date format and logic
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+          results.failed.push({
+            ...specialPriceData,
+            error: 'Định dạng ngày không hợp lệ'
+          });
+          continue;
+        }
+        
+        if (start >= end) {
+          results.failed.push({
+            ...specialPriceData,
+            error: 'Ngày kết thúc phải sau ngày bắt đầu'
+          });
+          continue;
+        }
+        
+        if (start < new Date()) {
+          results.failed.push({
+            ...specialPriceData,
+            error: 'Ngày bắt đầu không thể trong quá khứ'
+          });
+          continue;
+        }
+
+        // Validate price
+        const priceValue = parseFloat(price);
+        if (isNaN(priceValue) || priceValue <= 0) {
+          results.failed.push({
+            ...specialPriceData,
+            error: 'Giá phải là số dương'
+          });
+          continue;
+        }
+
+        // Check if special price already exists for overlapping date range
+        const existingSpecialPrice = parkingType.specialPrices.find(sp => 
+          sp.isActive && 
+          ((start <= sp.endDate && end >= sp.startDate))
+        );
+
+        if (existingSpecialPrice) {
+          // If force override is enabled, remove existing special prices that overlap
+          if (forceOverride) {
+            // Remove all existing special prices that overlap with the new range
+            parkingType.specialPrices = parkingType.specialPrices.filter(sp => 
+              !(sp.isActive && ((start <= sp.endDate && end >= sp.startDate)))
+            );
+            
+            results.success.push({
+              ...specialPriceData,
+              action: 'force_override',
+              removedCount: 1
+            });
+          } else {
+            // Check if we can merge or update the existing special price
+            const existingStart = new Date(existingSpecialPrice.startDate);
+            const existingEnd = new Date(existingSpecialPrice.endDate);
+            
+            // If new range completely contains existing range, update the existing one
+            if (start <= existingStart && end >= existingEnd) {
+              existingSpecialPrice.startDate = start;
+              existingSpecialPrice.endDate = end;
+              existingSpecialPrice.price = priceValue;
+              existingSpecialPrice.reason = reason.trim();
+              
+              results.success.push({
+                ...specialPriceData,
+                action: 'updated',
+                existingId: existingSpecialPrice._id
+              });
+              continue;
+            }
+            
+            // If new range is completely within existing range, skip
+            if (start >= existingStart && end <= existingEnd) {
+              results.skipped.push({
+                ...specialPriceData,
+                error: 'Khoảng thời gian này đã được bao phủ bởi giá đặc biệt hiện có',
+                existingSpecialPrice: {
+                  startDate: existingSpecialPrice.startDate,
+                  endDate: existingSpecialPrice.endDate,
+                  reason: existingSpecialPrice.reason
+                }
+              });
+              continue;
+            }
+            
+            // If partial overlap, skip with detailed message
+            results.skipped.push({
+              ...specialPriceData,
+              error: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
+              existingSpecialPrice: {
+                startDate: existingSpecialPrice.startDate,
+                endDate: existingSpecialPrice.endDate,
+                reason: existingSpecialPrice.reason
+              }
+            });
+            continue;
+          }
+        }
+
+        // Add special price
+        const newSpecialPrice = {
+          startDate: start,
+          endDate: end,
+          price: priceValue,
+          reason: reason.trim(),
+          isActive: isActive !== false
+        };
+
+        parkingType.specialPrices.push(newSpecialPrice);
+        results.success.push(newSpecialPrice);
+
+      } catch (error) {
+        results.failed.push({
+          ...specialPriceData,
+          error: error.message
+        });
+      }
+    }
+
+    // Save all changes at once
+    if (results.success.length > 0) {
+      await parkingType.save();
+    }
+
+    res.json({
+      message: `Xử lý ${specialPrices.length} giá đặc biệt hoàn tất`,
+      results: {
+        total: specialPrices.length,
+        success: results.success.length,
+        failed: results.failed.length,
+        skipped: results.skipped.length,
+        details: results
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Update special price
+exports.updateSpecialPrice = async (req, res) => {
+  try {
+    const { parkingTypeId, specialPriceId } = req.params;
+    const { startDate, endDate, price, reason, isActive } = req.body;
+    
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    const specialPrice = parkingType.specialPrices.id(specialPriceId);
+    if (!specialPrice) {
+      return res.status(404).json({ message: 'Không tìm thấy giá đặc biệt' });
+    }
+
+    if (startDate) specialPrice.startDate = new Date(startDate);
+    if (endDate) specialPrice.endDate = new Date(endDate);
+    if (price !== undefined) specialPrice.price = parseFloat(price);
+    if (reason !== undefined) {
+      if (!reason || !reason.trim()) {
+        return res.status(400).json({ message: 'Lý do không được để trống' });
+      }
+      specialPrice.reason = reason.trim();
+    }
+    if (isActive !== undefined) specialPrice.isActive = isActive;
+
+    await parkingType.save();
+
+    res.json({
+      message: 'Cập nhật giá đặc biệt thành công',
+      specialPrice
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Delete special price
+exports.deleteSpecialPrice = async (req, res) => {
+  try {
+    const { parkingTypeId, specialPriceId } = req.params;
+    
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    parkingType.specialPrices = parkingType.specialPrices.filter(
+      sp => sp._id.toString() !== specialPriceId
+    );
+
+    await parkingType.save();
+
+    res.json({ message: 'Xóa giá đặc biệt thành công' });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Get special prices for parking type
+exports.getSpecialPrices = async (req, res) => {
+  try {
+    const { parkingTypeId } = req.params;
+    
+    const parkingType = await ParkingType.findById(parkingTypeId);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    res.json({
+      specialPrices: parkingType.specialPrices.sort((a, b) => a.startDate - b.startDate)
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
 

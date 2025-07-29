@@ -192,11 +192,117 @@ const getBookingTerms = async (req, res) => {
   }
 };
 
+// Check VIP status by email
+const checkVIPStatus = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Email là bắt buộc' 
+      });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email }).select('name email phone isVIP vipDiscount vipCode vipCreatedAt');
+    
+    if (!user) {
+      return res.json({
+        success: false,
+        message: 'Không tìm thấy người dùng với email này',
+        isVIP: false,
+        vipDiscount: 0
+      });
+    }
+
+    res.json({
+      success: true,
+      message: user.isVIP ? 'Người dùng là VIP' : 'Người dùng không phải VIP',
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        isVIP: user.isVIP,
+        vipDiscount: user.vipDiscount || 0,
+        vipCode: user.vipCode,
+        vipCreatedAt: user.vipCreatedAt
+      },
+      isVIP: user.isVIP,
+      vipDiscount: user.vipDiscount || 0
+    });
+  } catch (error) {
+    console.error('Error checking VIP status:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi server khi kiểm tra VIP status',
+      error: error.message 
+    });
+  }
+};
+
+// Check VIP status by VIP code
+const checkVIPByCode = async (req, res) => {
+  try {
+    const { vipCode } = req.body;
+    
+    if (!vipCode) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Mã VIP là bắt buộc' 
+      });
+    }
+
+    // Find user by VIP code
+    const user = await User.findOne({ 
+      vipCode: vipCode.trim(),
+      isVIP: true,
+      isActive: true
+    }).select('name email phone isVIP vipDiscount vipCode vipCreatedAt');
+    
+    if (!user) {
+      return res.json({
+        success: false,
+        message: 'Mã VIP không hợp lệ hoặc không tồn tại',
+        isVIP: false,
+        vipDiscount: 0
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Mã VIP hợp lệ',
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        isVIP: user.isVIP,
+        vipDiscount: user.vipDiscount || 0,
+        vipCode: user.vipCode,
+        vipCreatedAt: user.vipCreatedAt
+      },
+      isVIP: user.isVIP,
+      vipDiscount: user.vipDiscount || 0
+    });
+  } catch (error) {
+    console.error('Error checking VIP by code:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi server khi kiểm tra mã VIP',
+      error: error.message 
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
   changePassword,
-  getBookingTerms
+  getBookingTerms,
+  checkVIPStatus,
+  checkVIPByCode
 }; 

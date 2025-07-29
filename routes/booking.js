@@ -20,5 +20,7 @@ router.use(auth);
 router.use(requireRole(['admin', 'staff']));
 
 router.put('/:id/status', bookingController.updateBookingStatus);
+router.post('/manual', bookingController.createManualBooking);
+router.get('/today/summary', bookingController.getTodayBookings);
 
 module.exports = router; 

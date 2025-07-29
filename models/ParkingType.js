@@ -50,7 +50,11 @@ const parkingTypeSchema = new mongoose.Schema({
     min: 0
   },
   specialPrices: [{
-    date: {
+    startDate: {
+      type: Date,
+      required: true
+    },
+    endDate: {
       type: Date,
       required: true
     },
@@ -62,6 +66,10 @@ const parkingTypeSchema = new mongoose.Schema({
     reason: {
       type: String,
       trim: true
+    },
+    isActive: {
+      type: Boolean,
+      default: true
     }
   }],
   location: {
@@ -126,12 +134,14 @@ parkingTypeSchema.methods.isAvailableForTime = async function(startTime, endTime
 // Method to get price for specific date
 parkingTypeSchema.methods.getPriceForDate = function(date) {
   const specialPrice = this.specialPrices.find(sp => 
-    sp.date.toDateString() === date.toDateString()
+    sp.isActive && 
+    date >= sp.startDate && 
+    date <= sp.endDate
   );
   return specialPrice ? specialPrice.price : this.pricePerDay;
 };
 
-// Method to calculate total price for a date range
+// Method to calculate total price for a date range with daily breakdown
 parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) {
   const startDate = new Date(startTime);
   const endDate = new Date(endTime);
@@ -143,12 +153,27 @@ parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) 
   // If duration is less than 1 day, charge for 1 day
   const daysToCharge = Math.max(1, durationDays);
   
-  // Calculate price for each day
+  // Calculate price for each day with details
   let totalPrice = 0;
+  const dailyPrices = [];
   const currentDate = new Date(startDate);
   
   for (let i = 0; i < daysToCharge; i++) {
     const dayPrice = this.getPriceForDate(currentDate);
+    const specialPrice = this.specialPrices.find(sp => 
+      sp.isActive && 
+      currentDate >= sp.startDate && 
+      currentDate <= sp.endDate
+    );
+    
+    dailyPrices.push({
+      date: new Date(currentDate),
+      price: dayPrice,
+      isSpecialPrice: !!specialPrice,
+      specialPriceReason: specialPrice ? specialPrice.reason : null,
+      originalPrice: this.pricePerDay
+    });
+    
     totalPrice += dayPrice;
     currentDate.setDate(currentDate.getDate() + 1);
   }
@@ -157,7 +182,8 @@ parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) 
     durationDays: durationDays,
     daysToCharge: daysToCharge,
     totalPrice: totalPrice,
-    pricePerDay: this.pricePerDay
+    pricePerDay: this.pricePerDay,
+    dailyPrices: dailyPrices
   };
 };
 

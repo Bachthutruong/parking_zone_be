@@ -39,6 +39,15 @@ const userSchema = new mongoose.Schema({
     min: 0,
     max: 100
   },
+  vipCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    trim: true
+  },
+  vipCreatedAt: {
+    type: Date
+  },
   licensePlate: {
     type: String,
     trim: true
@@ -74,6 +83,27 @@ userSchema.pre('save', async function(next) {
     next(error);
   }
 });
+
+// Generate VIP code method
+userSchema.methods.generateVIPCode = function() {
+  const currentYear = new Date().getFullYear();
+  const yearCode = currentYear === 2025 ? '114' : currentYear === 2026 ? '115' : '114'; // Default to 114 for other years
+  
+  // Clean phone number - remove all non-digits and handle country codes
+  let phoneNumber = this.phone.replace(/\D/g, ''); // Remove non-digits
+  
+  // If phone starts with country code (886), remove it
+  if (phoneNumber.startsWith('886')) {
+    phoneNumber = phoneNumber.substring(3);
+  }
+  
+  // Ensure phone number is 10 digits (Taiwan format)
+  if (phoneNumber.length > 10) {
+    phoneNumber = phoneNumber.substring(phoneNumber.length - 10);
+  }
+  
+  return `${yearCode}${phoneNumber}`;
+};
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {

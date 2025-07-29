@@ -42,7 +42,7 @@ const bookingSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled'],
-    default: 'pending'
+    default: 'confirmed'
   },
   totalAmount: {
     type: Number,
@@ -136,7 +136,12 @@ const bookingSchema = new mongoose.Schema({
 
 // Virtual for booking number
 bookingSchema.virtual('bookingNumber').get(function() {
-  return `BK${this._id.toString().slice(-6).toUpperCase()}`;
+  const date = new Date(this.createdAt);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const dateString = `${year}${month}${day}`;
+  return `${dateString}${this.licensePlate}`;
 });
 
 // Virtual for duration in days

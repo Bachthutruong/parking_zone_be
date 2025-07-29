@@ -8,6 +8,7 @@ const { auth, requireRole } = require('../middleware/auth');
 router.get('/', parkingController.getAllParkingTypes);
 router.get('/:id', parkingController.getParkingTypeById);
 router.get('/:id/availability', parkingController.getParkingTypeAvailability);
+router.get('/:id/month-availability', parkingController.getParkingTypeMonthAvailability);
 
 // Admin routes
 router.post('/', auth, requireRole('admin'), validateParkingType, parkingController.createParkingType);

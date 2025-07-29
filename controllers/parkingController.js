@@ -91,6 +91,77 @@ exports.getParkingTypeAvailability = async (req, res) => {
   }
 };
 
+// Get parking type availability for a month
+exports.getParkingTypeMonthAvailability = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { year, month } = req.query;
+
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    if (!year || !month) {
+      return res.status(400).json({ message: 'Thiếu thông tin năm hoặc tháng' });
+    }
+
+    const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
+    const endOfMonth = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+
+    // Get all bookings for this month
+    const monthBookings = await Booking.find({
+      parkingType: parkingType._id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      $or: [
+        {
+          checkInTime: { $lt: endOfMonth },
+          checkOutTime: { $gt: startOfMonth }
+        }
+      ]
+    });
+
+    // Calculate availability for each day in the month
+    const daysInMonth = endOfMonth.getDate();
+    const availabilityData = [];
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = new Date(parseInt(year), parseInt(month) - 1, day);
+      const startOfDay = new Date(currentDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(currentDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      // Count overlapping bookings for this day
+      const overlappingBookings = monthBookings.filter(booking => {
+        return booking.checkInTime < endOfDay && booking.checkOutTime > startOfDay;
+      }).length;
+
+      const availableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
+      const isInPast = currentDate < new Date();
+
+      availabilityData.push({
+        date: currentDate.toISOString().split('T')[0],
+        isAvailable: !isInPast && availableSpaces > 0,
+        availableSpaces: isInPast ? 0 : availableSpaces,
+        occupiedSpaces: overlappingBookings,
+        totalSpaces: parkingType.totalSpaces,
+        price: parkingType.pricePerDay,
+        isInPast: isInPast
+      });
+    }
+
+    res.json({
+      parkingTypeId: parkingType._id,
+      year: parseInt(year),
+      month: parseInt(month),
+      availabilityData: availabilityData
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Create parking type
 exports.createParkingType = async (req, res) => {
   try {

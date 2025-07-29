@@ -132,4 +132,11 @@ router.post('/notifications/test', adminController.testNotification);
 router.post('/notifications/bulk', adminController.sendBulkNotification);
 router.get('/notifications/stats', adminController.getNotificationStats);
 
+// ===== SPECIAL PRICING ROUTES =====
+router.post('/parking-types/:parkingTypeId/special-prices', adminController.addSpecialPrice);
+router.post('/parking-types/:parkingTypeId/special-prices/bulk', adminController.addBulkSpecialPrices);
+router.put('/parking-types/:parkingTypeId/special-prices/:specialPriceId', adminController.updateSpecialPrice);
+router.delete('/parking-types/:parkingTypeId/special-prices/:specialPriceId', adminController.deleteSpecialPrice);
+router.get('/parking-types/:parkingTypeId/special-prices', adminController.getSpecialPrices);
+
 module.exports = router; 

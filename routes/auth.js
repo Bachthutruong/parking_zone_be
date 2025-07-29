@@ -35,6 +35,8 @@ const changePasswordValidation = [
 // Routes
 router.post('/register', registerValidation, handleValidationErrors, authController.register);
 router.post('/login', loginValidation, handleValidationErrors, authController.login);
+router.post('/check-vip', authController.checkVIPStatus);
+router.post('/check-vip-code', authController.checkVIPByCode);
 router.get('/profile', auth, authController.getProfile);
 router.put('/profile', auth, updateProfileValidation, handleValidationErrors, authController.updateProfile);
 router.put('/change-password', auth, changePasswordValidation, handleValidationErrors, authController.changePassword);
