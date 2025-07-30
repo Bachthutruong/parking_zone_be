@@ -36,10 +36,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/parking_zone', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/parking_zone')
 .then(() => console.log('✅ Connected to MongoDB'))
 .catch(err => console.error('❌ MongoDB connection error:', err));
 
@@ -88,6 +85,16 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Root endpoint for Render health checks
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Parking Zone Backend API',
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -104,7 +111,61 @@ app.use('*', (req, res) => {
 
 const PORT = process.env.PORT || 5002;
 
-app.listen(PORT, () => {
+// Create server instance for graceful shutdown
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Health check available at: http://localhost:${PORT}/api/health`);
+  
+  // Signal that the server is ready (for PM2)
+  if (process.send) {
+    process.send('ready');
+  }
+});
+
+// Graceful shutdown handling
+const gracefulShutdown = (signal) => {
+  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+  
+  server.close((err) => {
+    if (err) {
+      console.error('❌ Error during server shutdown:', err);
+      process.exit(1);
+    }
+    
+    console.log('✅ HTTP server closed');
+    
+    // Close MongoDB connection (without callback for newer Mongoose versions)
+    mongoose.connection.close(false)
+      .then(() => {
+        console.log('✅ MongoDB connection closed');
+        console.log('👋 Graceful shutdown completed');
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('❌ Error closing MongoDB connection:', err);
+        process.exit(1);
+      });
+  });
+  
+  // Force shutdown after 30 seconds
+  setTimeout(() => {
+    console.error('❌ Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 30000);
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 }); 

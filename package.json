@@ -5,6 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "start:prod": "NODE_ENV=production node server.js",
+    "start:safe": "node scripts/start-server.js",
     "dev": "nodemon server.js",
     "test": "jest",
     "test:features": "node scripts/testIndividualFeatures.js",

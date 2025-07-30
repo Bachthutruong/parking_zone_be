@@ -1,312 +1,144 @@
-# 🚀 Deployment Guide - Parking Zone Backend
+# Deployment Guide for Parking Zone Backend
 
-## 📋 Prerequisites
+## Render Deployment
 
-- Node.js >= 16.0.0
-- npm >= 8.0.0
-- MongoDB (local or cloud)
-- PM2 (for production process management)
-- Docker (optional)
+### 1. Environment Variables Setup
 
-## 🛠️ Installation
+Make sure to set these environment variables in your Render dashboard:
 
-### 1. Clone Repository
 ```bash
-git clone <repository-url>
-cd parking_zone/backend
-```
-
-### 2. Install Dependencies
-```bash
-npm install
-```
-
-### 3. Environment Setup
-```bash
-cp .env.example .env
-# Edit .env with your configuration
-```
-
-## 🚀 Deployment Options
-
-### Option 1: Traditional Server Deployment
-
-#### Using PM2 (Recommended)
-```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Start in production mode
-npm run pm2:start
-
-# Monitor logs
-npm run pm2:logs
-
-# Monitor performance
-npm run pm2:monit
-```
-
-#### Manual Deployment
-```bash
-# Build for production
-npm run build
-
-# Start production server
-npm run deploy:prod
-```
-
-### Option 2: Docker Deployment
-
-#### Build and Run Docker Container
-```bash
-# Build Docker image
-npm run docker:build
-
-# Run container
-npm run docker:run
-
-# Or use docker-compose for full stack
-docker-compose up -d
-```
-
-#### Docker Compose (with MongoDB)
-```bash
-# Start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-```
-
-### Option 3: Cloud Platform Deployment
-
-#### Heroku
-```bash
-# Install Heroku CLI
-npm install -g heroku
-
-# Login to Heroku
-heroku login
-
-# Create app
-heroku create your-app-name
-
-# Set environment variables
-heroku config:set NODE_ENV=production
-heroku config:set MONGODB_URI=your_mongodb_uri
-heroku config:set JWT_SECRET=your_jwt_secret
-
-# Deploy
-npm run heroku:deploy
-```
-
-#### Railway
-```bash
-# Install Railway CLI
-npm install -g @railway/cli
-
-# Login to Railway
-railway login
-
-# Deploy
-npm run railway:deploy
-```
-
-#### Render
-```bash
-# Connect your GitHub repository to Render
-# Set environment variables in Render dashboard
-# Deploy automatically on push to main branch
-npm run render:deploy
-```
-
-#### Vercel
-```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# Deploy
-npm run vercel:deploy
-```
-
-## 🔧 Environment Variables
-
-### Required Variables
-```bash
+# Required
+MONGODB_URI=mongodb+srv://your-username:your-password@your-cluster.mongodb.net/your-database
+JWT_SECRET=your-super-secret-jwt-key-here
 NODE_ENV=production
-PORT=5000
-MONGODB_URI=mongodb://your-mongodb-uri
-JWT_SECRET=your-super-secret-jwt-key
-```
+PORT=10000
 
-### Optional Variables
-```bash
+# Optional
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-app-password
-CORS_ORIGIN=https://your-frontend-domain.com
+ADMIN_EMAIL=admin@parkingzone.com
+ADMIN_PASSWORD=admin123
 ```
 
-## 📊 Monitoring & Logging
+### 2. Build & Start Commands
 
-### PM2 Monitoring
+In your Render service settings:
+
+- **Build Command**: `npm install`
+- **Start Command**: `npm start`
+
+### 3. Health Check
+
+The application provides health check endpoints:
+
+- **Root Health Check**: `GET /`
+- **API Health Check**: `GET /api/health`
+
+### 4. Troubleshooting
+
+#### Common Issues:
+
+1. **SIGTERM Error**: The server now handles graceful shutdown properly
+2. **MongoDB Connection**: Ensure MONGODB_URI is correctly set
+3. **Port Issues**: Render automatically sets PORT environment variable
+
+#### Debug Commands:
+
 ```bash
-# View all processes
-pm2 list
+# Check if server is running
+curl https://your-app.onrender.com/api/health
 
-# Monitor CPU/Memory
+# Check logs in Render dashboard
+# Go to your service > Logs tab
+```
+
+### 5. Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Start production server locally
+npm run start:prod
+
+# Start with safe mode (with environment checks)
+npm run start:safe
+```
+
+### 6. Docker Deployment
+
+If using Docker:
+
+```bash
+# Build image
+docker build -t parking-zone-backend .
+
+# Run container
+docker run -p 5002:5002 -e MONGODB_URI=your-uri parking-zone-backend
+```
+
+### 7. PM2 Deployment
+
+For production servers with PM2:
+
+```bash
+# Install PM2
+npm install -g pm2
+
+# Start with PM2
+pm2 start ecosystem.config.js --env production
+
+# Monitor
 pm2 monit
 
 # View logs
 pm2 logs
-
-# Restart application
-pm2 restart parking-zone-backend
 ```
 
-### Health Check
-```bash
-# Check if API is running
-curl http://localhost:5000/api/health
-```
+## API Endpoints
 
-## 🔒 Security Checklist
+### Health Checks
+- `GET /` - Root health check
+- `GET /api/health` - Detailed health check
 
-- [ ] Set strong JWT_SECRET
-- [ ] Configure CORS properly
-- [ ] Use HTTPS in production
-- [ ] Set up rate limiting
-- [ ] Configure MongoDB authentication
-- [ ] Set up firewall rules
-- [ ] Enable helmet security headers
-- [ ] Use environment variables for secrets
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login
+- `POST /api/auth/logout` - User logout
 
-## 📈 Performance Optimization
+### Parking Management
+- `GET /api/parking/types` - Get parking types
+- `GET /api/parking/lots` - Get parking lots
+- `POST /api/parking/lots` - Create parking lot
 
-### PM2 Cluster Mode
-```bash
-# Start with multiple instances
-pm2 start ecosystem.config.js --env production
-```
+### Booking Management
+- `GET /api/bookings` - Get bookings
+- `POST /api/bookings` - Create booking
+- `PUT /api/bookings/:id` - Update booking
 
-### Database Optimization
-- Create indexes for frequently queried fields
-- Use connection pooling
-- Monitor slow queries
+### Admin Functions
+- `GET /api/admin/users` - Get all users
+- `GET /api/admin/bookings` - Get all bookings
+- `POST /api/admin/maintenance` - Create maintenance day
 
-### Caching
-- Implement Redis for session storage
-- Cache frequently accessed data
-- Use compression middleware
+## Monitoring
 
-## 🐛 Troubleshooting
+The application includes:
 
-### Common Issues
+1. **Graceful Shutdown**: Handles SIGTERM/SIGINT properly
+2. **Error Logging**: Comprehensive error handling
+3. **Health Checks**: Multiple health check endpoints
+4. **Process Monitoring**: PM2 integration for production
 
-#### Port Already in Use
-```bash
-# Find process using port 5000
-lsof -i :5000
+## Security
 
-# Kill process
-kill -9 <PID>
-```
-
-#### MongoDB Connection Issues
-```bash
-# Check MongoDB status
-sudo systemctl status mongod
-
-# Restart MongoDB
-sudo systemctl restart mongod
-```
-
-#### PM2 Issues
-```bash
-# Reset PM2
-pm2 kill
-pm2 start ecosystem.config.js
-
-# Clear logs
-pm2 flush
-```
-
-## 📝 Logs
-
-### Application Logs
-```bash
-# View application logs
-tail -f logs/app.log
-
-# View PM2 logs
-pm2 logs parking-zone-backend
-```
-
-### Error Logs
-```bash
-# View error logs
-tail -f logs/err.log
-```
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions Example
-```yaml
-name: Deploy to Production
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '18'
-      - run: npm ci
-      - run: npm test
-      - run: npm run deploy:prod
-```
-
-## 📞 Support
-
-For deployment issues:
-1. Check logs: `npm run pm2:logs`
-2. Verify environment variables
-3. Test database connection
-4. Check firewall settings
-5. Contact support team
-
-## 🔗 Useful Commands
-
-```bash
-# Development
-npm run dev
-
-# Production
-npm run deploy:prod
-
-# Testing
-npm test
-
-# Linting
-npm run lint
-
-# Clean install
-npm run clean:install
-
-# Docker
-npm run docker:deploy
-
-# PM2
-npm run pm2:start
-npm run pm2:restart
-npm run pm2:stop
-``` 
+- CORS configured for cross-origin requests
+- Helmet.js for security headers
+- Rate limiting (optional)
+- JWT authentication
+- Input validation with express-validator 

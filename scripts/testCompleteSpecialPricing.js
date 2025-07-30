@@ -37,12 +37,23 @@ async function testCompleteSpecialPricing() {
     
     const testCases = [
       {
-        name: 'Valid special price',
+        name: 'Valid special price (date range)',
         data: {
           startDate: '2025-08-10',
           endDate: '2025-08-11',
           price: 2000,
-          reason: 'Test Valid Price',
+          reason: 'Test Valid Price Range',
+          isActive: true
+        },
+        expectedSuccess: true
+      },
+      {
+        name: 'Valid special price (single day)',
+        data: {
+          startDate: '2025-08-12',
+          endDate: '2025-08-12',
+          price: 2000,
+          reason: 'Test Valid Single Day',
           isActive: true
         },
         expectedSuccess: true
@@ -57,7 +68,7 @@ async function testCompleteSpecialPricing() {
           isActive: true
         },
         expectedSuccess: false,
-        expectedError: 'Ngày kết thúc phải sau ngày bắt đầu'
+        expectedError: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu'
       },
       {
         name: 'Negative price',

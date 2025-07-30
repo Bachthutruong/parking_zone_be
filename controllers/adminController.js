@@ -1876,7 +1876,7 @@ exports.getNotificationStats = async (req, res) => {
 exports.addSpecialPrice = async (req, res) => {
   try {
     const { parkingTypeId } = req.params;
-    const { startDate, endDate, price, reason, isActive } = req.body;
+    const { startDate, endDate, price, reason, isActive, forceOverride = false } = req.body;
     
     if (!startDate || !endDate || !price || !reason || !reason.trim()) {
       return res.status(400).json({ message: 'Thiếu thông tin bắt buộc. Vui lòng nhập đầy đủ ngày, giá và lý do' });
@@ -1890,8 +1890,8 @@ exports.addSpecialPrice = async (req, res) => {
       return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
     }
     
-    if (start >= end) {
-      return res.status(400).json({ message: 'Ngày kết thúc phải sau ngày bắt đầu' });
+    if (start > end) {
+      return res.status(400).json({ message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu' });
     }
     
     if (start < new Date()) {
@@ -1916,14 +1916,53 @@ exports.addSpecialPrice = async (req, res) => {
     );
 
     if (existingSpecialPrice) {
-      return res.status(400).json({ 
-        message: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
-        existingSpecialPrice: {
-          startDate: existingSpecialPrice.startDate,
-          endDate: existingSpecialPrice.endDate,
-          reason: existingSpecialPrice.reason
-        }
-      });
+      // Check if it's an exact match (same start and end date)
+      const isExactMatch = new Date(startDate).getTime() === existingSpecialPrice.startDate.getTime() && 
+                          new Date(endDate).getTime() === existingSpecialPrice.endDate.getTime();
+      
+      if (isExactMatch) {
+        // Update existing special price
+        existingSpecialPrice.price = parseFloat(price);
+        existingSpecialPrice.reason = reason.trim();
+        existingSpecialPrice.isActive = isActive !== false;
+        
+        await parkingType.save();
+        
+        return res.json({
+          message: 'Cập nhật giá đặc biệt thành công',
+          specialPrice: existingSpecialPrice
+        });
+      } else if (forceOverride) {
+        // Remove overlapping special prices and add new one
+        parkingType.specialPrices = parkingType.specialPrices.filter(sp => 
+          !(sp.isActive && ((new Date(startDate) <= sp.endDate && new Date(endDate) >= sp.startDate)))
+        );
+        
+        // Add new special price
+        parkingType.specialPrices.push({
+          startDate: new Date(startDate),
+          endDate: new Date(endDate),
+          price: parseFloat(price),
+          reason: reason.trim(),
+          isActive: isActive !== false
+        });
+        
+        await parkingType.save();
+        
+        return res.json({
+          message: 'Thêm giá đặc biệt thành công (đã ghi đè)',
+          specialPrice: parkingType.specialPrices[parkingType.specialPrices.length - 1]
+        });
+      } else {
+        return res.status(400).json({ 
+          message: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
+          existingSpecialPrice: {
+            startDate: existingSpecialPrice.startDate,
+            endDate: existingSpecialPrice.endDate,
+            reason: existingSpecialPrice.reason
+          }
+        });
+      }
     }
 
     // Add special price
@@ -1992,10 +2031,10 @@ exports.addBulkSpecialPrices = async (req, res) => {
           continue;
         }
         
-        if (start >= end) {
+        if (start > end) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Ngày kết thúc phải sau ngày bắt đầu'
+            error: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu'
           });
           continue;
         }
@@ -2141,6 +2180,20 @@ exports.updateSpecialPrice = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy giá đặc biệt' });
     }
 
+    // Validate dates if both are provided
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+      }
+      
+      if (start > end) {
+        return res.status(400).json({ message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu' });
+      }
+    }
+    
     if (startDate) specialPrice.startDate = new Date(startDate);
     if (endDate) specialPrice.endDate = new Date(endDate);
     if (price !== undefined) specialPrice.price = parseFloat(price);
