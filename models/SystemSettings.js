@@ -74,6 +74,12 @@ const systemSettingsSchema = new mongoose.Schema({
     default: 30, // Maximum days in advance for booking
     min: 1
   },
+  minBookingDays: {
+    type: Number,
+    default: 3, // Minimum days required for booking
+    min: 1,
+    max: 30
+  },
   autoCancelMinutes: {
     type: Number,
     default: 15, // Auto cancel if not checked in within minutes
