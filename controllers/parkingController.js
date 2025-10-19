@@ -417,8 +417,17 @@ exports.uploadImages = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
     }
 
+    // Store original availableSpaces to prevent validation error
+    const originalAvailableSpaces = parkingType.availableSpaces;
+
     // Add new images to existing ones
     parkingType.images = [...(parkingType.images || []), ...processedImages];
+    
+    // Ensure availableSpaces is not negative
+    if (parkingType.availableSpaces < 0) {
+      parkingType.availableSpaces = Math.max(0, originalAvailableSpaces);
+    }
+    
     await parkingType.save();
 
     res.json({
@@ -427,6 +436,7 @@ exports.uploadImages = async (req, res) => {
       totalImages: parkingType.images.length
     });
   } catch (error) {
+    console.error('Upload images error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -448,6 +458,9 @@ exports.deleteImage = async (req, res) => {
 
     const image = parkingType.images[imageIndex];
     
+    // Store original availableSpaces to prevent validation error
+    const originalAvailableSpaces = parkingType.availableSpaces;
+    
     // Delete from Cloudinary
     try {
       if (image.cloudinaryId) {
@@ -463,6 +476,12 @@ exports.deleteImage = async (req, res) => {
 
     // Remove from database
     parkingType.images.splice(imageIndex, 1);
+    
+    // Ensure availableSpaces is not negative
+    if (parkingType.availableSpaces < 0) {
+      parkingType.availableSpaces = Math.max(0, originalAvailableSpaces);
+    }
+    
     await parkingType.save();
 
     res.json({
@@ -470,6 +489,7 @@ exports.deleteImage = async (req, res) => {
       remainingImages: parkingType.images.length
     });
   } catch (error) {
+    console.error('Delete image error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -485,6 +505,9 @@ exports.updateImageOrder = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
     }
 
+    // Store original availableSpaces to prevent validation error
+    const originalAvailableSpaces = parkingType.availableSpaces;
+
     // Reorder images based on provided order
     const reorderedImages = [];
     for (const imageId of imageIds) {
@@ -495,6 +518,12 @@ exports.updateImageOrder = async (req, res) => {
     }
 
     parkingType.images = reorderedImages;
+    
+    // Ensure availableSpaces is not negative
+    if (parkingType.availableSpaces < 0) {
+      parkingType.availableSpaces = Math.max(0, originalAvailableSpaces);
+    }
+    
     await parkingType.save();
 
     res.json({
@@ -502,6 +531,7 @@ exports.updateImageOrder = async (req, res) => {
       images: parkingType.images
     });
   } catch (error) {
+    console.error('Update image order error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
