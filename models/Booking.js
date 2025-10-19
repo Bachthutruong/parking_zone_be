@@ -87,6 +87,14 @@ const bookingSchema = new mongoose.Schema({
     default: 1,
     min: 1
   },
+  departureTerminal: {
+    type: String,
+    enum: ['terminal1', 'terminal2']
+  },
+  returnTerminal: {
+    type: String,
+    enum: ['terminal1', 'terminal2']
+  },
   estimatedArrivalTime: {
     type: Date
   },

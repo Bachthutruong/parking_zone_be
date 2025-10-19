@@ -111,17 +111,40 @@ exports.getAllBookings = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const bookings = await Booking.find(query)
-      .populate('parkingType', 'name type')
+      .populate('parkingType')
       .populate('addonServices.service', 'name icon price')
       .populate('user', 'name email isVIP')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Add bookingNumber to each booking
-    const bookingsWithNumber = bookings.map(booking => ({
-      ...booking.toObject(),
-      bookingNumber: booking.bookingNumber
+    // Add bookingNumber and dailyPrices to each booking
+    const bookingsWithNumber = await Promise.all(bookings.map(async (booking) => {
+      const bookingObj = booking.toObject();
+      
+      // Calculate daily prices if needed
+      let dailyPrices = null;
+      if (booking.parkingType && booking.checkInTime && booking.checkOutTime) {
+        try {
+          const pricing = booking.parkingType.calculatePriceForRange(
+            new Date(booking.checkInTime),
+            new Date(booking.checkOutTime)
+          );
+          // Convert date objects to ISO strings
+          dailyPrices = pricing.dailyPrices.map(dp => ({
+            ...dp,
+            date: dp.date.toISOString().split('T')[0] // Convert to YYYY-MM-DD format
+          }));
+        } catch (error) {
+          console.error('Error calculating daily prices for booking:', booking._id, error);
+        }
+      }
+      
+      return {
+        ...bookingObj,
+        bookingNumber: booking.bookingNumber,
+        dailyPrices: dailyPrices
+      };
     }));
 
     const total = await Booking.countDocuments(query);
@@ -433,11 +456,20 @@ exports.updateUser = async (req, res) => {
       updateData.vipCreatedAt = null;
     }
 
-    const user = await User.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('-password');
+    // Update user fields
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] !== undefined) {
+        existingUser[key] = updateData[key];
+      }
+    });
+
+    // Ensure password is marked as modified if it's being updated
+    if (updateData.password) {
+      existingUser.markModified('password');
+    }
+
+    // Save user to trigger pre-save middleware (for password hashing)
+    const user = await existingUser.save();
 
     res.json({
       message: 'Cập nhật thông tin người dùng thành công',

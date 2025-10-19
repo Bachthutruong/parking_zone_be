@@ -354,7 +354,9 @@ exports.createBooking = async (req, res) => {
       estimatedArrivalTime,
       flightNumber,
       notes,
-      termsAccepted
+      termsAccepted,
+      departureTerminal,
+      returnTerminal
     } = req.body;
 
     // Validate required fields
@@ -441,7 +443,9 @@ exports.createBooking = async (req, res) => {
       vipDiscount: priceCalculation.vipDiscount,
       status: 'confirmed',
       paymentStatus: 'pending',
-      paymentMethod: 'cash'
+      paymentMethod: 'cash',
+      departureTerminal,
+      returnTerminal
     });
 
     // Update parking type availability
@@ -499,7 +503,9 @@ exports.createManualBooking = async (req, res) => {
       notes,
       paymentStatus = 'pending',
       paymentMethod = 'cash',
-      status = 'confirmed'
+      status = 'confirmed',
+      departureTerminal,
+      returnTerminal
     } = req.body;
 
     // Check if parking type is available
@@ -583,6 +589,8 @@ exports.createManualBooking = async (req, res) => {
       paymentStatus,
       paymentMethod,
       status,
+      departureTerminal,
+      returnTerminal,
       isManualBooking: true,
       createdBy: req.user._id
     });

@@ -1,5 +1,6 @@
 const ParkingType = require('../models/ParkingType');
 const Booking = require('../models/Booking');
+const cloudinary = require('cloudinary').v2;
 
 // Get all parking types
 exports.getAllParkingTypes = async (req, res) => {
@@ -395,6 +396,110 @@ exports.removeSpecialPrice = async (req, res) => {
     res.json({
       message: 'Xóa giá đặc biệt thành công',
       parkingLot
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Upload images for parking type
+exports.uploadImages = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { processedImages } = req;
+
+    if (!processedImages || processedImages.length === 0) {
+      return res.status(400).json({ message: 'Không có hình ảnh nào được tải lên' });
+    }
+
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    // Add new images to existing ones
+    parkingType.images = [...(parkingType.images || []), ...processedImages];
+    await parkingType.save();
+
+    res.json({
+      message: 'Tải lên hình ảnh thành công',
+      images: processedImages,
+      totalImages: parkingType.images.length
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Delete image from parking type
+exports.deleteImage = async (req, res) => {
+  try {
+    const { id, imageId } = req.params;
+
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    const imageIndex = parkingType.images.findIndex(img => img._id.toString() === imageId);
+    if (imageIndex === -1) {
+      return res.status(404).json({ message: 'Không tìm thấy hình ảnh' });
+    }
+
+    const image = parkingType.images[imageIndex];
+    
+    // Delete from Cloudinary
+    try {
+      if (image.cloudinaryId) {
+        await cloudinary.uploader.destroy(image.cloudinaryId);
+      }
+      if (image.thumbnailCloudinaryId) {
+        await cloudinary.uploader.destroy(image.thumbnailCloudinaryId);
+      }
+    } catch (cloudinaryError) {
+      console.error('Error deleting from Cloudinary:', cloudinaryError);
+      // Continue with database deletion even if Cloudinary deletion fails
+    }
+
+    // Remove from database
+    parkingType.images.splice(imageIndex, 1);
+    await parkingType.save();
+
+    res.json({
+      message: 'Xóa hình ảnh thành công',
+      remainingImages: parkingType.images.length
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Update image order/status
+exports.updateImageOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { imageIds } = req.body; // Array of image IDs in new order
+
+    const parkingType = await ParkingType.findById(id);
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    // Reorder images based on provided order
+    const reorderedImages = [];
+    for (const imageId of imageIds) {
+      const image = parkingType.images.find(img => img._id.toString() === imageId);
+      if (image) {
+        reorderedImages.push(image);
+      }
+    }
+
+    parkingType.images = reorderedImages;
+    await parkingType.save();
+
+    res.json({
+      message: 'Cập nhật thứ tự hình ảnh thành công',
+      images: parkingType.images
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });

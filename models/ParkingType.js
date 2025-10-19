@@ -89,7 +89,48 @@ const parkingTypeSchema = new mongoose.Schema({
       type: String,
       default: '23:59'
     }
-  }
+  },
+  // Image upload fields
+  images: [{
+    url: {
+      type: String,
+      required: true
+    },
+    thumbnailUrl: {
+      type: String
+    },
+    cloudinaryId: {
+      type: String,
+      required: true
+    },
+    thumbnailCloudinaryId: {
+      type: String
+    },
+    filename: {
+      type: String,
+      required: true
+    },
+    originalName: {
+      type: String,
+      required: true
+    },
+    size: {
+      type: Number,
+      required: true
+    },
+    mimeType: {
+      type: String,
+      required: true
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  }]
 }, {
   timestamps: true
 });
@@ -133,11 +174,21 @@ parkingTypeSchema.methods.isAvailableForTime = async function(startTime, endTime
 
 // Method to get price for specific date
 parkingTypeSchema.methods.getPriceForDate = function(date) {
-  const specialPrice = this.specialPrices.find(sp => 
-    sp.isActive && 
-    date >= sp.startDate && 
-    date <= sp.endDate
-  );
+  // Normalize dates to compare only the date part (ignore time)
+  const targetDate = new Date(date);
+  targetDate.setHours(0, 0, 0, 0);
+  
+  const specialPrice = this.specialPrices.find(sp => {
+    if (!sp.isActive) return false;
+    
+    const startDate = new Date(sp.startDate);
+    const endDate = new Date(sp.endDate);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999); // Include the entire end date
+    
+    return targetDate >= startDate && targetDate <= endDate;
+  });
+  
   return specialPrice ? specialPrice.price : this.pricePerDay;
 };
 
@@ -153,6 +204,7 @@ parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) 
   // If duration is less than 1 day, charge for 1 day
   const daysToCharge = Math.max(1, durationDays);
   
+  
   // Calculate price for each day with details
   let totalPrice = 0;
   const dailyPrices = [];
@@ -160,11 +212,22 @@ parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) 
   
   for (let i = 0; i < daysToCharge; i++) {
     const dayPrice = this.getPriceForDate(currentDate);
-    const specialPrice = this.specialPrices.find(sp => 
-      sp.isActive && 
-      currentDate >= sp.startDate && 
-      currentDate <= sp.endDate
-    );
+    
+    // Find special price for this date (using the same logic as getPriceForDate)
+    const targetDate = new Date(currentDate);
+    targetDate.setHours(0, 0, 0, 0);
+    
+    const specialPrice = this.specialPrices.find(sp => {
+      if (!sp.isActive) return false;
+      
+      const startDate = new Date(sp.startDate);
+      const endDate = new Date(sp.endDate);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+      
+      return targetDate >= startDate && targetDate <= endDate;
+    });
+    
     
     dailyPrices.push({
       date: new Date(currentDate),
