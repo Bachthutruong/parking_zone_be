@@ -13,6 +13,44 @@ const systemSettingsSchema = new mongoose.Schema({
     trim: true
   },
   
+  // Configurable terms checkboxes
+  termsCheckboxes: [{
+    id: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    title: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    content: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    isRequired: {
+      type: Boolean,
+      default: true
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    order: {
+      type: Number,
+      default: 0
+    }
+  }],
+  
+  // Contract terms for printing
+  contractTerms: {
+    type: String,
+    default: '<h2>停車場使用合約條款</h2><p>1. 本合約適用於所有使用本停車場服務的客戶。</p><p>2. 客戶應遵守停車場的所有規定和安全措施。</p><p>3. 停車場管理方保留在緊急情況下移動車輛的權利。</p><p>4. 客戶應確保車輛保險有效，並承擔車輛安全責任。</p><p>5. 本合約受當地法律管轄。</p>',
+    trim: true
+  },
+  
   // Contact information
   contactInfo: {
     phone: {
@@ -34,6 +72,33 @@ const systemSettingsSchema = new mongoose.Schema({
       type: String,
       default: 'https://parkingzone.com',
       trim: true
+    }
+  },
+  
+  // Contact content configuration for confirmation page
+  contactContent: {
+    title: {
+      type: String,
+      default: '聯繫信息',
+      trim: true
+    },
+    content: {
+      type: String,
+      default: '如有任何問題，請隨時聯繫我們。我們將竭誠為您服務。',
+      trim: true
+    },
+    imageUrl: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    isActive: {
+      type: Boolean,
+      default: true
+    },
+    showContactInfo: {
+      type: Boolean,
+      default: true
     }
   },
   
@@ -156,6 +221,22 @@ const systemSettingsSchema = new mongoose.Schema({
       type: Number,
       default: 100, // Price per additional luggage item
       min: 0
+    },
+    luggageContent: {
+      title: {
+        type: String,
+        default: '行李注意事項',
+        trim: true
+      },
+      description: {
+        type: String,
+        default: '請注意您的行李安全，建議將貴重物品隨身攜帶。',
+        trim: true
+      },
+      isActive: {
+        type: Boolean,
+        default: true
+      }
     }
   },
   

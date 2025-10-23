@@ -2,6 +2,7 @@ const Booking = require('../models/Booking');
 const ParkingType = require('../models/ParkingType');
 const AddonService = require('../models/AddonService');
 const DiscountCode = require('../models/DiscountCode');
+const AutoDiscount = require('../models/AutoDiscount');
 const SystemSettings = require('../models/SystemSettings');
 const User = require('../models/User');
 const MaintenanceDay = require('../models/MaintenanceDay');
@@ -271,11 +272,54 @@ exports.calculatePrice = async (req, res) => {
     // Calculate subtotal (base + addons)
     const subtotal = totalBasePrice + addonTotal;
 
-    // Calculate discount code first
+    // Get user info for auto discount and VIP calculations
+    let user = null;
+    if (userEmail) {
+      user = await User.findOne({ email: userEmail });
+    }
+
+    // Apply auto discounts first (highest priority)
+    let autoDiscountAmount = 0;
+    let autoDiscountInfo = null;
+    
+    const autoDiscounts = await AutoDiscount.find({
+      isActive: true,
+      applicableParkingTypes: parkingTypeId,
+      validFrom: { $lte: new Date() },
+      validTo: { $gte: new Date() }
+    }).sort({ priority: -1 }); // Sort by priority (highest first)
+
+    // Find the best auto discount that applies
+    for (const autoDiscount of autoDiscounts) {
+      const bookingData = {
+        parkingTypeId,
+        checkInTime,
+        checkOutTime,
+        totalAmount: subtotal,
+        isVIP: isVIP,
+        userId: user?._id,
+        userRegistrationDate: user?.createdAt
+      };
+
+      if (autoDiscount.appliesToBooking(bookingData)) {
+        autoDiscountAmount = autoDiscount.calculateDiscount(bookingData);
+        autoDiscountInfo = {
+          _id: autoDiscount._id,
+          name: autoDiscount.name,
+          description: autoDiscount.description,
+          discountType: autoDiscount.discountType,
+          discountValue: autoDiscount.discountValue,
+          applyToSpecialPrices: autoDiscount.applyToSpecialPrices
+        };
+        break; // Use the first (highest priority) applicable discount
+      }
+    }
+
+    // Calculate discount code (if no auto discount or auto discount allows it)
     let discountAmount = 0;
     let discountCodeInfo = null;
 
-    if (discountCode) {
+    if (discountCode && (!autoDiscountInfo || autoDiscountInfo.applyToSpecialPrices)) {
       const code = await DiscountCode.findOne({ 
         code: discountCode.toUpperCase(),
         isActive: true,
@@ -297,22 +341,20 @@ exports.calculatePrice = async (req, res) => {
       }
     }
 
-    // Calculate VIP discount after discount code
+    // Calculate VIP discount after other discounts
     let vipDiscount = 0;
-    if (isVIP && userEmail) {
-      // Get user's VIP discount percentage
-      const user = await User.findOne({ email: userEmail });
-      const vipDiscountPercent = user?.vipDiscount || 0;
+    if (isVIP && user) {
+      const vipDiscountPercent = user.vipDiscount || 0;
       
       if (vipDiscountPercent > 0) {
-        const amountAfterDiscount = subtotal - discountAmount;
-        vipDiscount = amountAfterDiscount * (vipDiscountPercent / 100);
+        const amountAfterDiscounts = subtotal - autoDiscountAmount - discountAmount;
+        vipDiscount = amountAfterDiscounts * (vipDiscountPercent / 100);
       }
     }
 
     // Calculate final amounts
     const totalAmount = subtotal;
-    const finalDiscount = discountAmount + vipDiscount;
+    const finalDiscount = autoDiscountAmount + discountAmount + vipDiscount;
     const finalAmount = Math.max(0, totalAmount - finalDiscount);
 
     res.json({
@@ -320,6 +362,7 @@ exports.calculatePrice = async (req, res) => {
       pricing: {
         basePrice: totalBasePrice,
         addonTotal: addonTotal,
+        autoDiscountAmount: autoDiscountAmount,
         discountAmount: discountAmount,
         vipDiscount: vipDiscount,
         totalAmount: totalAmount,
@@ -329,6 +372,7 @@ exports.calculatePrice = async (req, res) => {
         dailyPrices: pricing.dailyPrices
       },
       addonDetails,
+      autoDiscountInfo,
       discountCodeInfo
     });
   } catch (error) {
@@ -354,15 +398,15 @@ exports.createBooking = async (req, res) => {
       estimatedArrivalTime,
       flightNumber,
       notes,
-      termsAccepted,
+      // termsAccepted,
       departureTerminal,
       returnTerminal
     } = req.body;
 
-    // Validate required fields
-    if (!termsAccepted) {
-      return res.status(400).json({ message: 'Bạn phải đồng ý với các điều khoản' });
-    }
+    // // Validate required fields
+    // if (!termsAccepted) {
+    //   return res.status(400).json({ message: 'Bạn phải đồng ý với các điều khoản' });
+    // }
 
     // Check if user exists or create new user
     let user = await User.findOne({ email });
@@ -433,6 +477,7 @@ exports.createBooking = async (req, res) => {
       luggageCount,
       addonServices: priceCalculation.addonDetails,
       discountCode: priceCalculation.discountCodeInfo,
+      autoDiscount: priceCalculation.autoDiscountInfo,
       estimatedArrivalTime,
       flightNumber,
       notes,
@@ -578,6 +623,7 @@ exports.createManualBooking = async (req, res) => {
       luggageCount,
       addonServices: priceCalculation.addonDetails,
       discountCode: priceCalculation.discountCodeInfo,
+      autoDiscount: priceCalculation.autoDiscountInfo,
       estimatedArrivalTime,
       flightNumber,
       notes,
@@ -827,11 +873,54 @@ async function calculateBookingPrice({
   // Calculate subtotal (base + addons + luggage)
   const subtotal = totalBasePrice + addonTotal + luggageTotal;
 
-  // Apply discount code first
+  // Get user info for auto discount and VIP calculations
+  let user = null;
+  if (userEmail) {
+    user = await User.findOne({ email: userEmail });
+  }
+
+  // Apply auto discounts first (highest priority)
+  let autoDiscountAmount = 0;
+  let autoDiscountInfo = null;
+  
+  const autoDiscounts = await AutoDiscount.find({
+    isActive: true,
+    applicableParkingTypes: parkingTypeId,
+    validFrom: { $lte: new Date() },
+    validTo: { $gte: new Date() }
+  }).sort({ priority: -1 }); // Sort by priority (highest first)
+
+  // Find the best auto discount that applies
+  for (const autoDiscount of autoDiscounts) {
+    const bookingData = {
+      parkingTypeId,
+      checkInTime,
+      checkOutTime,
+      totalAmount: subtotal,
+      isVIP: isVIP,
+      userId: user?._id,
+      userRegistrationDate: user?.createdAt
+    };
+
+    if (autoDiscount.appliesToBooking(bookingData)) {
+      autoDiscountAmount = autoDiscount.calculateDiscount(bookingData);
+      autoDiscountInfo = {
+        _id: autoDiscount._id,
+        name: autoDiscount.name,
+        description: autoDiscount.description,
+        discountType: autoDiscount.discountType,
+        discountValue: autoDiscount.discountValue,
+        applyToSpecialPrices: autoDiscount.applyToSpecialPrices
+      };
+      break; // Use the first (highest priority) applicable discount
+    }
+  }
+
+  // Apply discount code (if no auto discount or auto discount allows it)
   let discountAmount = 0;
   let discountCodeInfo = null;
 
-  if (discountCode) {
+  if (discountCode && (!autoDiscountInfo || autoDiscountInfo.applyToSpecialPrices)) {
     const code = await DiscountCode.findOne({ 
       code: discountCode.toUpperCase().trim(),
       isActive: true,
@@ -859,31 +948,31 @@ async function calculateBookingPrice({
     }
   }
 
-  // Apply VIP discount after discount code
+  // Apply VIP discount after other discounts
   let vipDiscount = 0;
-  if (isVIP && userEmail) {
-    // Get user's VIP discount percentage
-    const user = await User.findOne({ email: userEmail });
-    const vipDiscountPercent = user?.vipDiscount || 0;
+  if (isVIP && user) {
+    const vipDiscountPercent = user.vipDiscount || 0;
     
     if (vipDiscountPercent > 0) {
-      const amountAfterDiscount = subtotal - discountAmount;
-      vipDiscount = amountAfterDiscount * (vipDiscountPercent / 100);
+      const amountAfterDiscounts = subtotal - autoDiscountAmount - discountAmount;
+      vipDiscount = amountAfterDiscounts * (vipDiscountPercent / 100);
     }
   }
 
   // Calculate final amounts
   const totalAmount = subtotal;
-  const finalDiscount = discountAmount + vipDiscount;
+  const finalDiscount = autoDiscountAmount + discountAmount + vipDiscount;
   const finalAmount = Math.max(0, totalAmount - finalDiscount); // Ensure final amount is not negative
 
   return {
     totalAmount,
+    autoDiscountAmount,
     discountAmount,
     vipDiscount,
     finalAmount,
     addonDetails,
     luggageDetails,
+    autoDiscountInfo,
     discountCodeInfo,
     pricing: {
       basePrice: totalBasePrice,

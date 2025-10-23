@@ -49,6 +49,8 @@ const addonRoutes = require('./routes/addonServices');
 const discountRoutes = require('./routes/discountCodes');
 const systemSettingsRoutes = require('./routes/systemSettings');
 const maintenanceRoutes = require('./routes/maintenance');
+const autoDiscountRoutes = require('./routes/autoDiscounts');
+const uploadRoutes = require('./routes/upload');
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -59,6 +61,8 @@ app.use('/api/addon-services', addonRoutes);
 app.use('/api/discount-codes', discountRoutes);
 app.use('/api/system-settings', systemSettingsRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/auto-discounts', autoDiscountRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Debug: Log all registered routes
 console.log('🔧 Registered API routes:');
@@ -70,6 +74,8 @@ console.log('  - /api/addon-services');
 console.log('  - /api/discount-codes');
 console.log('  - /api/system-settings');
 console.log('  - /api/maintenance');
+console.log('  - /api/auto-discounts');
+console.log('  - /api/upload');
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

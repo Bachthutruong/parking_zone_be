@@ -35,7 +35,12 @@ const upload = multer({
 // Middleware to process uploaded images
 const processImages = async (req, res, next) => {
   try {
+    console.log('🔍 processImages middleware:');
+    console.log('  - req.files:', req.files);
+    console.log('  - req.files length:', req.files ? req.files.length : 'undefined');
+    
     if (!req.files || req.files.length === 0) {
+      console.log('⚠️ No files found, skipping processing');
       return next();
     }
 
@@ -108,6 +113,7 @@ const processImages = async (req, res, next) => {
     }
 
     req.processedImages = processedImages;
+    console.log('✅ processImages completed, processed images:', processedImages.length);
     next();
   } catch (error) {
     console.error('Image processing error:', error);

@@ -63,12 +63,17 @@ const getBookingTerms = async (req, res) => {
 // Update booking terms and rules (admin only)
 const updateBookingTerms = async (req, res) => {
   try {
-    const { bookingTerms, bookingRules } = req.body;
+    const { bookingTerms, bookingRules, termsCheckboxes } = req.body;
     const settings = await SystemSettings.getSettings();
+    
+    const updateData = { bookingTerms, bookingRules };
+    if (termsCheckboxes) {
+      updateData.termsCheckboxes = termsCheckboxes;
+    }
     
     const updatedSettings = await SystemSettings.findByIdAndUpdate(
       settings._id,
-      { bookingTerms, bookingRules },
+      updateData,
       { new: true, runValidators: true }
     );
     
@@ -76,7 +81,8 @@ const updateBookingTerms = async (req, res) => {
       success: true,
       message: 'Cập nhật điều khoản thành công',
       bookingTerms: updatedSettings.bookingTerms,
-      bookingRules: updatedSettings.bookingRules
+      bookingRules: updatedSettings.bookingRules,
+      termsCheckboxes: updatedSettings.termsCheckboxes
     });
   } catch (error) {
     console.error('Error updating booking terms:', error);

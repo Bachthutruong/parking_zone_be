@@ -77,6 +77,21 @@ const bookingSchema = new mongoose.Schema({
       enum: ['percentage', 'fixed']
     }
   },
+  autoDiscount: {
+    _id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'AutoDiscount'
+    },
+    name: String,
+    description: String,
+    discountAmount: Number,
+    discountType: {
+      type: String,
+      enum: ['percentage', 'fixed']
+    },
+    discountValue: Number,
+    applyToSpecialPrices: Boolean
+  },
   luggageCount: {
     type: Number,
     default: 0,
@@ -84,8 +99,8 @@ const bookingSchema = new mongoose.Schema({
   },
   passengerCount: {
     type: Number,
-    default: 1,
-    min: 1
+    default: 0,
+    min: 0
   },
   departureTerminal: {
     type: String,
