@@ -620,9 +620,40 @@ exports.getSystemSettings = async (req, res) => {
 exports.updateSystemSettings = async (req, res) => {
   try {
     const settings = await SystemSettings.getSettings();
-    
-    // Update settings with request body
-    Object.assign(settings, req.body);
+
+    const updateData = { ...req.body };
+
+    // Handle luggageSettings separately to ensure nested imageUrl is preserved
+    if (updateData.luggageSettings) {
+      const currentLuggage = settings.luggageSettings || {};
+      const currentContent = (currentLuggage.luggageContent && currentLuggage.luggageContent.toObject)
+        ? currentLuggage.luggageContent.toObject()
+        : currentLuggage.luggageContent || {};
+
+      const incomingLuggage = updateData.luggageSettings;
+      const incomingContent = incomingLuggage.luggageContent || {};
+
+      const mergedLuggageContent = {
+        ...currentContent,
+        ...incomingContent
+      };
+
+      const mergedLuggageSettings = {
+        ...currentLuggage.toObject?.() || currentLuggage,
+        ...incomingLuggage,
+        luggageContent: mergedLuggageContent
+      };
+
+      settings.luggageSettings = mergedLuggageSettings;
+      settings.markModified('luggageSettings');
+
+      // Remove from generic update so it doesn't get overwritten
+      delete updateData.luggageSettings;
+    }
+
+    // Apply remaining top-level updates
+    Object.assign(settings, updateData);
+
     await settings.save();
 
     res.json({

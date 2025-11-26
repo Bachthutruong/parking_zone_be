@@ -233,6 +233,11 @@ const systemSettingsSchema = new mongoose.Schema({
         default: '請注意您的行李安全，建議將貴重物品隨身攜帶。',
         trim: true
       },
+      imageUrl: {
+        type: String,
+        default: '',
+        trim: true
+      },
       isActive: {
         type: Boolean,
         default: true
