@@ -116,7 +116,7 @@ exports.checkAvailability = async (req, res) => {
     }
 
     // Calculate pricing using new day-based logic
-    const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+    const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
 
     res.json({
       success: true,
@@ -198,7 +198,7 @@ exports.getAvailableParkingTypes = async (req, res) => {
         });
         const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
         
-        const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+        const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
         availableTypes.push({
           _id: parkingType._id,
           name: parkingType.name,
@@ -247,7 +247,7 @@ exports.calculatePrice = async (req, res) => {
     // Calculate pricing using new day-based logic
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
-    const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+    const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
 
     // Calculate base price
     const totalBasePrice = pricing.totalPrice;
@@ -829,7 +829,7 @@ async function calculateBookingPrice({
   const checkOut = new Date(checkOutTime);
   
   // Calculate pricing using new day-based logic
-  const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+  const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
   const totalBasePrice = pricing.totalPrice;
 
   // Calculate addon services

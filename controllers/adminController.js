@@ -126,7 +126,7 @@ exports.getAllBookings = async (req, res) => {
       let dailyPrices = null;
       if (booking.parkingType && booking.checkInTime && booking.checkOutTime) {
         try {
-          const pricing = booking.parkingType.calculatePriceForRange(
+          const pricing = await booking.parkingType.calculatePriceForRange(
             new Date(booking.checkInTime),
             new Date(booking.checkOutTime)
           );
@@ -904,7 +904,7 @@ async function calculateBookingPrice({
   const checkOut = new Date(checkOutTime);
   
   // Calculate pricing using new day-based logic
-  const pricing = parkingType.calculatePriceForRange(checkIn, checkOut);
+  const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
   const totalBasePrice = pricing.totalPrice;
 
   let addonTotal = 0;

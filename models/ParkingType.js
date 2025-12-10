@@ -193,60 +193,165 @@ parkingTypeSchema.methods.getPriceForDate = function(date) {
 };
 
 // Method to calculate total price for a date range with daily breakdown
-parkingTypeSchema.methods.calculatePriceForRange = function(startTime, endTime) {
+// cutoffHour: hour (0-23) that determines if first day is charged
+//   - If check-in time < cutoffHour: first day is charged
+//   - If check-in time >= cutoffHour: first day is free, charging starts from day 2
+//   - Check-out day is always charged (1 day)
+parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, endTime, cutoffHour = null) {
+  const SystemSettings = require('./SystemSettings');
+  
+  // Always get cutoffHour from settings if not explicitly provided
+  if (cutoffHour === null || cutoffHour === undefined) {
+    const settings = await SystemSettings.getSettings();
+    cutoffHour = settings.cutoffHour !== undefined && settings.cutoffHour !== null ? Number(settings.cutoffHour) : 0;
+  } else {
+    cutoffHour = Number(cutoffHour);
+  }
+  
+  // Ensure cutoffHour is a valid number between 0-23
+  cutoffHour = Math.max(0, Math.min(23, Math.floor(cutoffHour)));
+  
   const startDate = new Date(startTime);
   const endDate = new Date(endTime);
   
-  // Calculate duration in days (rounded up)
-  const durationMs = endDate - startDate;
-  const durationDays = Math.ceil(durationMs / (1000 * 60 * 60 * 24));
+  // Get check-in hour
+  const checkInHour = startDate.getHours();
   
-  // If duration is less than 1 day, charge for 1 day
-  const daysToCharge = Math.max(1, durationDays);
+  // Determine if first day should be charged based on cutoff hour
+  // If check-in hour is BEFORE cutoff hour, charge first day
+  // If check-in hour is AT OR AFTER cutoff hour, first day is free
+  const chargeFirstDay = checkInHour < cutoffHour;
   
+  // Debug logging
+  console.log('🔍 Pricing calculation:', {
+    checkInTime: startDate.toISOString(),
+    checkInHour,
+    cutoffHour,
+    chargeFirstDay,
+    checkInDate: startDate.toLocaleString('vi-VN')
+  });
+  
+  // Normalize dates to start of day for comparison
+  const startDateOnly = new Date(startDate);
+  startDateOnly.setHours(0, 0, 0, 0);
+  
+  const endDateOnly = new Date(endDate);
+  endDateOnly.setHours(0, 0, 0, 0);
+  
+  // Calculate number of calendar days between start and end (inclusive)
+  const daysDiff = Math.ceil((endDateOnly - startDateOnly) / (1000 * 60 * 60 * 24));
+  const isSameDay = (daysDiff === 0);
   
   // Calculate price for each day with details
   let totalPrice = 0;
   const dailyPrices = [];
-  const currentDate = new Date(startDate);
   
-  for (let i = 0; i < daysToCharge; i++) {
-    const dayPrice = this.getPriceForDate(currentDate);
+  // Iterate through each day from start to end (inclusive)
+  for (let i = 0; i <= daysDiff; i++) {
+    const dayDate = new Date(startDateOnly);
+    dayDate.setDate(startDateOnly.getDate() + i);
     
-    // Find special price for this date (using the same logic as getPriceForDate)
-    const targetDate = new Date(currentDate);
+    const isFirstDay = (i === 0);
+    const isLastDay = (i === daysDiff);
+    
+    // If same day: always charge (check-out day is always charged)
+    if (isSameDay) {
+      const dayPrice = this.getPriceForDate(dayDate);
+      
+      // Find special price for this date
+      const targetDate = new Date(dayDate);
+      targetDate.setHours(0, 0, 0, 0);
+      
+      const specialPrice = this.specialPrices.find(sp => {
+        if (!sp.isActive) return false;
+        
+        const spStartDate = new Date(sp.startDate);
+        const spEndDate = new Date(sp.endDate);
+        spStartDate.setHours(0, 0, 0, 0);
+        spEndDate.setHours(23, 59, 59, 999);
+        
+        return targetDate >= spStartDate && targetDate <= spEndDate;
+      });
+      
+      dailyPrices.push({
+        date: new Date(dayDate),
+        price: dayPrice,
+        isSpecialPrice: !!specialPrice,
+        specialPriceReason: specialPrice ? specialPrice.reason : null,
+        originalPrice: this.pricePerDay,
+        isFree: false,
+        reason: '進場與離場同日（始終計費）'
+      });
+      
+      totalPrice += dayPrice;
+      break;
+    }
+    
+    // First day: check if it should be charged based on cutoff hour
+    if (isFirstDay && !chargeFirstDay) {
+      // First day is free (check-in after cutoff hour)
+      dailyPrices.push({
+        date: new Date(dayDate),
+        price: 0,
+        isSpecialPrice: false,
+        specialPriceReason: null,
+        originalPrice: this.pricePerDay,
+        isFree: true,
+        reason: '首日免費（進場時間晚於分界點）'
+      });
+      continue;
+    }
+    
+    // Last day (check-out day) is always charged
+    // Middle days and first day (if chargeFirstDay is true) are also charged
+    const dayPrice = this.getPriceForDate(dayDate);
+    
+    // Find special price for this date
+    const targetDate = new Date(dayDate);
     targetDate.setHours(0, 0, 0, 0);
     
     const specialPrice = this.specialPrices.find(sp => {
       if (!sp.isActive) return false;
       
-      const startDate = new Date(sp.startDate);
-      const endDate = new Date(sp.endDate);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      const spStartDate = new Date(sp.startDate);
+      const spEndDate = new Date(sp.endDate);
+      spStartDate.setHours(0, 0, 0, 0);
+      spEndDate.setHours(23, 59, 59, 999);
       
-      return targetDate >= startDate && targetDate <= endDate;
+      return targetDate >= spStartDate && targetDate <= spEndDate;
     });
     
+    let reason = null;
+    if (isFirstDay && chargeFirstDay) {
+      reason = '進場日（早於分界點）';
+    } else if (isLastDay) {
+      reason = '離場日（始終計費）';
+    }
     
     dailyPrices.push({
-      date: new Date(currentDate),
+      date: new Date(dayDate),
       price: dayPrice,
       isSpecialPrice: !!specialPrice,
       specialPriceReason: specialPrice ? specialPrice.reason : null,
-      originalPrice: this.pricePerDay
+      originalPrice: this.pricePerDay,
+      isFree: false,
+      reason: reason
     });
     
     totalPrice += dayPrice;
-    currentDate.setDate(currentDate.getDate() + 1);
   }
   
+  // Calculate days to charge (excluding free days)
+  const daysToCharge = dailyPrices.filter(dp => !dp.isFree).length;
+  
   return {
-    durationDays: durationDays,
-    daysToCharge: daysToCharge,
+    durationDays: daysDiff + 1, // Total calendar days
+    daysToCharge: daysToCharge, // Actual days charged
     totalPrice: totalPrice,
     pricePerDay: this.pricePerDay,
-    dailyPrices: dailyPrices
+    dailyPrices: dailyPrices,
+    cutoffHour: cutoffHour,
+    chargeFirstDay: chargeFirstDay
   };
 };
 

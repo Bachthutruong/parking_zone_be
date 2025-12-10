@@ -150,6 +150,15 @@ const systemSettingsSchema = new mongoose.Schema({
     default: 15, // Auto cancel if not checked in within minutes
     min: 0
   },
+  // Cutoff hour for daily pricing calculation (0-23)
+  // If check-in time is before this hour, the first day is charged
+  // If check-in time is after this hour, the first day is free, charging starts from day 2
+  cutoffHour: {
+    type: Number,
+    default: 0, // Default to midnight (0:00)
+    min: 0,
+    max: 23
+  },
   
   // Time slot settings
   timeSlotInterval: {
