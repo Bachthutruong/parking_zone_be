@@ -159,6 +159,12 @@ const systemSettingsSchema = new mongoose.Schema({
     min: 0,
     max: 23
   },
+  // Enable/disable cutoff hour rule
+  // If disabled, first day is always charged regardless of check-in time
+  enableCutoffHour: {
+    type: Boolean,
+    default: false // Default to disabled
+  },
   
   // Time slot settings
   timeSlotInterval: {

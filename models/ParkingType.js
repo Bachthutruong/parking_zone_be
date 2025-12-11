@@ -197,15 +197,27 @@ parkingTypeSchema.methods.getPriceForDate = function(date) {
 //   - If check-in time < cutoffHour: first day is charged
 //   - If check-in time >= cutoffHour: first day is free, charging starts from day 2
 //   - Check-out day is always charged (1 day)
-parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, endTime, cutoffHour = null) {
+parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, endTime, cutoffHour = null, enableCutoffHour = null) {
   const SystemSettings = require('./SystemSettings');
   
-  // Always get cutoffHour from settings if not explicitly provided
+  // Get settings if not explicitly provided
+  let settings = null;
+  if (cutoffHour === null || cutoffHour === undefined || enableCutoffHour === null || enableCutoffHour === undefined) {
+    settings = await SystemSettings.getSettings();
+  }
+  
+  // Get cutoffHour from settings if not provided
   if (cutoffHour === null || cutoffHour === undefined) {
-    const settings = await SystemSettings.getSettings();
     cutoffHour = settings.cutoffHour !== undefined && settings.cutoffHour !== null ? Number(settings.cutoffHour) : 0;
   } else {
     cutoffHour = Number(cutoffHour);
+  }
+  
+  // Get enableCutoffHour from settings if not provided
+  if (enableCutoffHour === null || enableCutoffHour === undefined) {
+    enableCutoffHour = settings ? (settings.enableCutoffHour === true) : false;
+  } else {
+    enableCutoffHour = Boolean(enableCutoffHour);
   }
   
   // Ensure cutoffHour is a valid number between 0-23
@@ -217,16 +229,26 @@ parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, end
   // Get check-in hour
   const checkInHour = startDate.getHours();
   
-  // Determine if first day should be charged based on cutoff hour
-  // If check-in hour is BEFORE cutoff hour, charge first day
-  // If check-in hour is AT OR AFTER cutoff hour, first day is free
-  const chargeFirstDay = checkInHour < cutoffHour;
+  // Determine if first day should be charged
+  // If enableCutoffHour is false, always charge first day
+  // If enableCutoffHour is true, check based on cutoff hour:
+  //   - If check-in hour is BEFORE cutoff hour, charge first day
+  //   - If check-in hour is AT OR AFTER cutoff hour, first day is free
+  let chargeFirstDay;
+  if (!enableCutoffHour) {
+    // Rule disabled: always charge first day
+    chargeFirstDay = true;
+  } else {
+    // Rule enabled: check based on cutoff hour
+    chargeFirstDay = checkInHour < cutoffHour;
+  }
   
   // Debug logging
   console.log('🔍 Pricing calculation:', {
     checkInTime: startDate.toISOString(),
     checkInHour,
     cutoffHour,
+    enableCutoffHour,
     chargeFirstDay,
     checkInDate: startDate.toLocaleString('vi-VN')
   });
@@ -323,7 +345,11 @@ parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, end
     
     let reason = null;
     if (isFirstDay && chargeFirstDay) {
-      reason = '進場日（早於分界點）';
+      if (!enableCutoffHour) {
+        reason = '進場日（規則未啟用，始終計費）';
+      } else {
+        reason = '進場日（早於分界點）';
+      }
     } else if (isLastDay) {
       reason = '離場日（始終計費）';
     }
@@ -351,6 +377,7 @@ parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, end
     pricePerDay: this.pricePerDay,
     dailyPrices: dailyPrices,
     cutoffHour: cutoffHour,
+    enableCutoffHour: enableCutoffHour,
     chargeFirstDay: chargeFirstDay
   };
 };
