@@ -280,11 +280,25 @@ const systemSettingsSchema = new mongoose.Schema({
 
 // Ensure only one settings document exists
 systemSettingsSchema.statics.getSettings = async function() {
-  let settings = await this.findOne();
-  if (!settings) {
-    settings = await this.create({});
+  try {
+    // Check if mongoose is connected
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error('MongoDB is not connected. Please check your database connection.');
+    }
+    
+    let settings = await this.findOne().maxTimeMS(5000); // 5 second timeout
+    if (!settings) {
+      settings = await this.create({});
+    }
+    return settings;
+  } catch (error) {
+    console.error('Error getting system settings:', error);
+    // If it's a connection error, throw it
+    if (error.name === 'MongooseError' || error.message.includes('buffering')) {
+      throw new Error('MongoDB connection timeout. Please ensure MongoDB is running and accessible.');
+    }
+    throw error;
   }
-  return settings;
 };
 
 

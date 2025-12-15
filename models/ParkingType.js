@@ -203,7 +203,16 @@ parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, end
   // Get settings if not explicitly provided
   let settings = null;
   if (cutoffHour === null || cutoffHour === undefined || enableCutoffHour === null || enableCutoffHour === undefined) {
-    settings = await SystemSettings.getSettings();
+    try {
+      settings = await SystemSettings.getSettings();
+    } catch (error) {
+      console.error('Error getting system settings in calculatePriceForRange:', error);
+      // Use defaults if settings cannot be retrieved
+      settings = {
+        cutoffHour: 0,
+        enableCutoffHour: false
+      };
+    }
   }
   
   // Get cutoffHour from settings if not provided
@@ -226,28 +235,35 @@ parkingTypeSchema.methods.calculatePriceForRange = async function(startTime, end
   const startDate = new Date(startTime);
   const endDate = new Date(endTime);
   
-  // Get check-in hour
+  // Get check-in hour and minutes
   const checkInHour = startDate.getHours();
+  const checkInMinutes = startDate.getMinutes();
+  const checkInTimeInMinutes = checkInHour * 60 + checkInMinutes;
+  const cutoffTimeInMinutes = cutoffHour * 60;
   
   // Determine if first day should be charged
   // If enableCutoffHour is false, always charge first day
   // If enableCutoffHour is true, check based on cutoff hour:
-  //   - If check-in hour is BEFORE cutoff hour, charge first day
-  //   - If check-in hour is AT OR AFTER cutoff hour, first day is free
+  //   - If check-in time is BEFORE cutoff time, charge first day
+  //   - If check-in time is AT OR AFTER cutoff time, first day is free
   let chargeFirstDay;
   if (!enableCutoffHour) {
     // Rule disabled: always charge first day
     chargeFirstDay = true;
   } else {
     // Rule enabled: check based on cutoff hour
-    chargeFirstDay = checkInHour < cutoffHour;
+    // Compare in minutes for more accurate comparison
+    chargeFirstDay = checkInTimeInMinutes < cutoffTimeInMinutes;
   }
   
   // Debug logging
   console.log('🔍 Pricing calculation:', {
     checkInTime: startDate.toISOString(),
     checkInHour,
+    checkInMinutes,
+    checkInTimeInMinutes,
     cutoffHour,
+    cutoffTimeInMinutes,
     enableCutoffHour,
     chargeFirstDay,
     checkInDate: startDate.toLocaleString('vi-VN')

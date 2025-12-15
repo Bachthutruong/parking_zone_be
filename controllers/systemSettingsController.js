@@ -3,6 +3,16 @@ const SystemSettings = require('../models/SystemSettings');
 // Get system settings
 const getSystemSettings = async (req, res) => {
   try {
+    // Check MongoDB connection before querying
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        success: false,
+        message: 'MongoDB chưa kết nối. Vui lòng kiểm tra kết nối database.',
+        error: 'Database connection not ready'
+      });
+    }
+    
     const settings = await SystemSettings.getSettings();
     res.json({
       success: true,
@@ -10,9 +20,19 @@ const getSystemSettings = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting system settings:', error);
+    
+    // Provide more specific error messages
+    let errorMessage = 'Không thể tải cài đặt hệ thống';
+    if (error.message && error.message.includes('timeout')) {
+      errorMessage = 'Kết nối database timeout. Vui lòng kiểm tra MongoDB đã chạy chưa.';
+    } else if (error.message && error.message.includes('buffering')) {
+      errorMessage = 'MongoDB chưa sẵn sàng. Vui lòng đợi vài giây rồi thử lại.';
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Không thể tải cài đặt hệ thống'
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

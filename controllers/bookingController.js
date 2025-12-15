@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const ParkingType = require('../models/ParkingType');
 const AddonService = require('../models/AddonService');
@@ -11,6 +12,13 @@ const notificationService = require('../utils/notificationService');
 // Get booking terms and rules
 exports.getBookingTerms = async (req, res) => {
   try {
+    // Check MongoDB connection
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ 
+        message: 'MongoDB chưa kết nối. Vui lòng kiểm tra kết nối database.' 
+      });
+    }
+    
     const settings = await SystemSettings.getSettings();
     res.json({
       terms: settings.bookingTerms,
@@ -18,7 +26,11 @@ exports.getBookingTerms = async (req, res) => {
       timeSlotInterval: settings.timeSlotInterval
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    console.error('Error getting booking terms:', error);
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined 
+    });
   }
 };
 
@@ -429,6 +441,24 @@ exports.createBooking = async (req, res) => {
     // Check for maintenance days that affect this specific parking type
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
+    
+    // Validate minimum booking days
+    const settings = await SystemSettings.getSettings();
+    const minBookingDays = settings.minBookingDays || 1;
+    
+    // Calculate calendar days difference (inclusive)
+    const checkInDateOnly = new Date(checkIn);
+    checkInDateOnly.setHours(0, 0, 0, 0);
+    const checkOutDateOnly = new Date(checkOut);
+    checkOutDateOnly.setHours(0, 0, 0, 0);
+    
+    const daysDiff = Math.ceil((checkOutDateOnly - checkInDateOnly) / (1000 * 60 * 60 * 24));
+    
+    if (daysDiff < minBookingDays) {
+      return res.status(400).json({ 
+        message: `最少需要預約 ${minBookingDays} 天，您選擇了 ${daysDiff} 天` 
+      });
+    }
     
     const maintenanceDays = await MaintenanceDay.getMaintenanceDaysForRange(checkIn, checkOut);
     const affectingMaintenanceDays = maintenanceDays.filter(md => 

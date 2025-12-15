@@ -35,10 +35,33 @@ app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Database connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/parking_zone')
-.then(() => console.log('✅ Connected to MongoDB'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+// Database connection with proper options
+const mongooseOptions = {
+  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 10s
+  socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
+  maxPoolSize: 10, // Maintain up to 10 socket connections
+  minPoolSize: 1, // Maintain at least 1 socket connection
+  connectTimeoutMS: 10000, // Give up initial connection after 10s
+};
+
+// Disable mongoose buffering globally (only valid options)
+mongoose.set('bufferCommands', false);
+
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/parking_zone', mongooseOptions)
+.then(() => {
+  console.log('✅ Connected to MongoDB');
+  console.log(`📊 Database: ${mongoose.connection.name}`);
+  console.log(`🔗 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
+})
+.catch(err => {
+  console.error('❌ MongoDB connection error:', err);
+  console.error('💡 Please check:');
+  console.error('   1. MongoDB is running');
+  console.error('   2. MONGODB_URI is correct in .env file');
+  console.error('   3. Network connectivity');
+  // Don't exit process, let the app continue (for development)
+  // In production, you might want to exit: process.exit(1);
+});
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -78,17 +101,38 @@ console.log('  - /api/auto-discounts');
 console.log('  - /api/upload');
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+app.get('/api/health', async (req, res) => {
+  const dbStatus = mongoose.connection.readyState;
+  const dbStates = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
+  
+  const health = {
+    status: dbStatus === 1 ? 'OK' : 'WARNING',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    database: {
+      status: dbStates[dbStatus] || 'unknown',
+      readyState: dbStatus,
+      name: mongoose.connection.name || 'N/A',
+      host: mongoose.connection.host || 'N/A',
+      port: mongoose.connection.port || 'N/A'
+    },
     cors: {
       origin: req.headers.origin,
-      method: req.method,
-      headers: req.headers
+      method: req.method
     }
-  });
+  };
+  
+  // If database is not connected, return 503
+  if (dbStatus !== 1) {
+    return res.status(503).json(health);
+  }
+  
+  res.json(health);
 });
 
 // Root endpoint for Render health checks
