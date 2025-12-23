@@ -1191,6 +1191,34 @@ exports.updateParkingType = async (req, res) => {
       delete updateData.code; // Remove code from update if it's not provided and current is null
     }
 
+    // Handle totalSpaces and availableSpaces updates to prevent negative availableSpaces
+    if (updateData.totalSpaces !== undefined || updateData.availableSpaces !== undefined) {
+      const currentTotalSpaces = parkingType.totalSpaces;
+      const currentAvailableSpaces = parkingType.availableSpaces;
+      const usedSpaces = currentTotalSpaces - currentAvailableSpaces;
+      
+      const newTotalSpaces = updateData.totalSpaces !== undefined 
+        ? Number(updateData.totalSpaces) 
+        : currentTotalSpaces;
+      
+      // If totalSpaces is being updated, recalculate availableSpaces
+      if (updateData.totalSpaces !== undefined) {
+        // Calculate new available spaces based on used spaces
+        // Ensure it's never negative
+        updateData.availableSpaces = Math.max(0, newTotalSpaces - usedSpaces);
+      } else if (updateData.availableSpaces !== undefined) {
+        // If only availableSpaces is being updated, validate it
+        const newAvailableSpaces = Number(updateData.availableSpaces);
+        // Ensure availableSpaces is between 0 and totalSpaces
+        updateData.availableSpaces = Math.max(0, Math.min(newAvailableSpaces, newTotalSpaces));
+      }
+      
+      // Final validation: ensure availableSpaces doesn't exceed totalSpaces
+      if (updateData.availableSpaces > newTotalSpaces) {
+        updateData.availableSpaces = newTotalSpaces;
+      }
+    }
+
     Object.assign(parkingType, updateData);
     await parkingType.save();
 

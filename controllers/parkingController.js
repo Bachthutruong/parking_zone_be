@@ -206,15 +206,45 @@ exports.updateParkingType = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
+    // Get current parking type to calculate used spaces
+    const currentParkingType = await ParkingType.findById(id);
+    if (!currentParkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    // Handle totalSpaces and availableSpaces updates to prevent negative availableSpaces
+    if (updateData.totalSpaces !== undefined || updateData.availableSpaces !== undefined) {
+      const currentTotalSpaces = currentParkingType.totalSpaces;
+      const currentAvailableSpaces = currentParkingType.availableSpaces;
+      const usedSpaces = currentTotalSpaces - currentAvailableSpaces;
+      
+      const newTotalSpaces = updateData.totalSpaces !== undefined 
+        ? Number(updateData.totalSpaces) 
+        : currentTotalSpaces;
+      
+      // If totalSpaces is being updated, recalculate availableSpaces
+      if (updateData.totalSpaces !== undefined) {
+        // Calculate new available spaces based on used spaces
+        // Ensure it's never negative
+        updateData.availableSpaces = Math.max(0, newTotalSpaces - usedSpaces);
+      } else if (updateData.availableSpaces !== undefined) {
+        // If only availableSpaces is being updated, validate it
+        const newAvailableSpaces = Number(updateData.availableSpaces);
+        // Ensure availableSpaces is between 0 and totalSpaces
+        updateData.availableSpaces = Math.max(0, Math.min(newAvailableSpaces, newTotalSpaces));
+      }
+      
+      // Final validation: ensure availableSpaces doesn't exceed totalSpaces
+      if (updateData.availableSpaces > newTotalSpaces) {
+        updateData.availableSpaces = newTotalSpaces;
+      }
+    }
+
     const parkingType = await ParkingType.findByIdAndUpdate(
       id,
       updateData,
-      { new: true }
+      { new: true, runValidators: true }
     );
-
-    if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
-    }
 
     res.json({
       message: 'Cập nhật loại bãi đậu xe thành công',
