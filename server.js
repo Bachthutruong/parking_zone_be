@@ -6,6 +6,9 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+// Set default timezone to Taiwan (UTC+8)
+process.env.TZ = 'Asia/Taipei';
+
 const app = express();
 
 // CORS configuration - allow all origins for simplicity
@@ -48,20 +51,20 @@ const mongooseOptions = {
 mongoose.set('bufferCommands', false);
 
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/parking_zone', mongooseOptions)
-.then(() => {
-  console.log('✅ Connected to MongoDB');
-  console.log(`📊 Database: ${mongoose.connection.name}`);
-  console.log(`🔗 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
-})
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err);
-  console.error('💡 Please check:');
-  console.error('   1. MongoDB is running');
-  console.error('   2. MONGODB_URI is correct in .env file');
-  console.error('   3. Network connectivity');
-  // Don't exit process, let the app continue (for development)
-  // In production, you might want to exit: process.exit(1);
-});
+  .then(() => {
+    console.log('✅ Connected to MongoDB');
+    console.log(`📊 Database: ${mongoose.connection.name}`);
+    console.log(`🔗 Host: ${mongoose.connection.host}:${mongoose.connection.port}`);
+  })
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    console.error('💡 Please check:');
+    console.error('   1. MongoDB is running');
+    console.error('   2. MONGODB_URI is correct in .env file');
+    console.error('   3. Network connectivity');
+    // Don't exit process, let the app continue (for development)
+    // In production, you might want to exit: process.exit(1);
+  });
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -109,7 +112,7 @@ app.get('/api/health', async (req, res) => {
     2: 'connecting',
     3: 'disconnecting'
   };
-  
+
   const health = {
     status: dbStatus === 1 ? 'OK' : 'WARNING',
     timestamp: new Date().toISOString(),
@@ -126,18 +129,18 @@ app.get('/api/health', async (req, res) => {
       method: req.method
     }
   };
-  
+
   // If database is not connected, return 503
   if (dbStatus !== 1) {
     return res.status(503).json(health);
   }
-  
+
   res.json(health);
 });
 
 // Root endpoint for Render health checks
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Parking Zone Backend API',
     status: 'OK',
     timestamp: new Date().toISOString(),
@@ -148,7 +151,7 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Something went wrong!',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
   });
@@ -166,7 +169,7 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 Health check available at: http://localhost:${PORT}/api/health`);
-  
+
   // Signal that the server is ready (for PM2)
   if (process.send) {
     process.send('ready');
@@ -176,15 +179,15 @@ const server = app.listen(PORT, () => {
 // Graceful shutdown handling
 const gracefulShutdown = (signal) => {
   console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
-  
+
   server.close((err) => {
     if (err) {
       console.error('❌ Error during server shutdown:', err);
       process.exit(1);
     }
-    
+
     console.log('✅ HTTP server closed');
-    
+
     // Close MongoDB connection (without callback for newer Mongoose versions)
     mongoose.connection.close(false)
       .then(() => {
@@ -197,7 +200,7 @@ const gracefulShutdown = (signal) => {
         process.exit(1);
       });
   });
-  
+
   // Force shutdown after 30 seconds
   setTimeout(() => {
     console.error('❌ Could not close connections in time, forcefully shutting down');
