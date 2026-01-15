@@ -879,29 +879,15 @@ async function calculateBookingPrice({
     }
   }
 
-  // Calculate luggage fees
+  // Calculate luggage fees - DISABLED as per user request
   let luggageTotal = 0;
   let luggageDetails = null;
   
-  if (luggageCount > 0) {
-    const settings = await SystemSettings.getSettings();
-    const { freeLuggageCount, luggagePricePerItem } = settings.luggageSettings;
-    
-    const additionalLuggage = Math.max(0, luggageCount - freeLuggageCount);
-    luggageTotal = additionalLuggage * luggagePricePerItem;
-    
-    if (luggageTotal > 0) {
-      luggageDetails = {
-        freeLuggageCount,
-        additionalLuggage,
-        pricePerItem: luggagePricePerItem,
-        total: luggageTotal
-      };
-    }
-  }
+  // Logic removed: luggage is recorded but not charged
+  // if (luggageCount > 0) { ... }
 
   // Calculate subtotal (base + addons + luggage)
-  const subtotal = totalBasePrice + addonTotal + luggageTotal;
+  const subtotal = totalBasePrice + addonTotal; // luggageTotal is 0
 
   // Get user info for auto discount and VIP calculations
   let user = null;
