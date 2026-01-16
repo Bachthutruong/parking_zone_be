@@ -75,7 +75,9 @@ router.get('/bookings/stats/:period', adminController.getBookingStats);
 
 // Bookings management
 router.get('/bookings', adminController.getAllBookings);
+router.get('/bookings/calendar', adminController.getCalendarBookings);
 router.patch('/bookings/:id/status', adminController.updateBookingStatus);
+router.delete('/bookings/:id', adminController.deleteBooking);
 router.post('/bookings/manual', adminController.createManualBooking);
 
 // Users management

@@ -28,7 +28,6 @@ const bookingSchema = new mongoose.Schema({
   },
   email: {
     type: String,
-    required: [true, 'Email is required'],
     trim: true
   },
   checkInTime: {
@@ -102,6 +101,11 @@ const bookingSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  vehicleCount: {
+    type: Number,
+    default: 1,
+    min: 1
+  },
   departureTerminal: {
     type: String,
     enum: ['terminal1', 'terminal2']
@@ -109,6 +113,26 @@ const bookingSchema = new mongoose.Schema({
   returnTerminal: {
     type: String,
     enum: ['terminal1', 'terminal2']
+  },
+  departurePassengerCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  departureLuggageCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  returnPassengerCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  returnLuggageCount: {
+    type: Number,
+    default: 0,
+    min: 0
   },
   estimatedArrivalTime: {
     type: Date
@@ -152,6 +176,17 @@ const bookingSchema = new mongoose.Schema({
   isManualBooking: {
     type: Boolean,
     default: false
+  },
+  isDeleted: {
+    type: Boolean,
+    default: false
+  },
+  deletedAt: {
+    type: Date
+  },
+  deletionReason: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true

@@ -15,20 +15,23 @@ const register = async (req, res) => {
     const { name, email, phone, password, licensePlate } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { phone }] 
-    });
+    const query = { $or: [{ phone }] };
+    if (email) {
+      query.$or.push({ email });
+    }
+
+    const existingUser = await User.findOne(query);
 
     if (existingUser) {
       return res.status(400).json({
-        error: 'User already exists with this email or phone number'
+        error: 'User already exists with this phone number or email'
       });
     }
 
     // Create new user
     const user = new User({
       name,
-      email,
+      email: email || undefined,
       phone,
       password,
       licensePlate
@@ -195,22 +198,29 @@ const getBookingTerms = async (req, res) => {
 // Check VIP status by email
 const checkVIPStatus = async (req, res) => {
   try {
-    const { email } = req.body;
+    const { phone, email } = req.body;
     
-    if (!email) {
+    if (!phone && !email) {
       return res.status(400).json({ 
         success: false,
-        message: 'Email là bắt buộc' 
+        message: 'Số điện thoại hoặc Email là bắt buộc' 
       });
     }
 
-    // Find user by email
-    const user = await User.findOne({ email }).select('name email phone isVIP vipDiscount vipCode vipCreatedAt');
+    // Find user by phone or email
+    let query = {};
+    if (phone) {
+      query.phone = phone;
+    } else {
+      query.email = email;
+    }
+
+    const user = await User.findOne(query).select('name email phone isVIP vipDiscount vipCode vipCreatedAt');
     
     if (!user) {
       return res.json({
         success: false,
-        message: 'Không tìm thấy người dùng với email này',
+        message: 'Không tìm thấy người dùng',
         isVIP: false,
         vipDiscount: 0
       });

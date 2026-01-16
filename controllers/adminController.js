@@ -72,10 +72,20 @@ exports.getAllBookings = async (req, res) => {
       dateFrom,
       dateTo,
       search,
-      parkingTypeId
+      parkingTypeId,
+      sortBy = 'checkInTime',
+      order = 'asc'
     } = req.query;
 
     const query = {};
+
+    // Deleted filter
+    const isDeletedParam = req.query.isDeleted;
+    if (isDeletedParam === 'true') {
+      query.isDeleted = true;
+    } else {
+      query.isDeleted = { $ne: true };
+    }
 
     // Status filter
     if (status) {
@@ -109,12 +119,16 @@ exports.getAllBookings = async (req, res) => {
     }
 
     const skip = (page - 1) * limit;
+    
+    // Sort options
+    const sortOptions = {};
+    sortOptions[sortBy] = order === 'desc' ? -1 : 1;
 
     const bookings = await Booking.find(query)
       .populate('parkingType')
       .populate('addonServices.service', 'name icon price')
       .populate('user', 'name email isVIP')
-      .sort({ createdAt: -1 })
+      .sort(sortOptions)
       .skip(skip)
       .limit(parseInt(limit));
 
@@ -157,6 +171,110 @@ exports.getAllBookings = async (req, res) => {
       currentPage: parseInt(page)
     });
   } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Get all bookings for calendar view (no pagination)
+exports.getCalendarBookings = async (req, res) => {
+  try {
+    const {
+      status,
+      dateFrom,
+      dateTo,
+      search,
+      parkingTypeId,
+      isDeleted
+    } = req.query;
+
+    const query = {};
+
+    // Deleted filter
+    if (isDeleted === 'true') {
+      query.isDeleted = true;
+    } else {
+      query.isDeleted = { $ne: true };
+    }
+
+    // Status filter
+    if (status) {
+      query.status = status;
+    }
+
+    // Date range filter for calendar - use checkInTime and checkOutTime for better accuracy
+    if (dateFrom || dateTo) {
+      // Find bookings that overlap with the date range
+      const dateFilters = [];
+      if (dateFrom && dateTo) {
+        // Booking overlaps with date range
+        dateFilters.push({
+          checkInTime: { $lte: new Date(dateTo) },
+          checkOutTime: { $gte: new Date(dateFrom) }
+        });
+      } else if (dateFrom) {
+        dateFilters.push({ checkOutTime: { $gte: new Date(dateFrom) } });
+      } else if (dateTo) {
+        dateFilters.push({ checkInTime: { $lte: new Date(dateTo) } });
+      }
+      if (dateFilters.length > 0) {
+        query.$and = dateFilters;
+      }
+    }
+
+    // Search filter
+    if (search) {
+      query.$or = [
+        { driverName: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { licensePlate: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Parking type filter
+    if (parkingTypeId) {
+      query.parkingType = parkingTypeId;
+    }
+
+    // Get all bookings without pagination
+    const bookings = await Booking.find(query)
+      .populate('parkingType', '_id name code type icon color totalSpaces')
+      .populate('user', 'name email isVIP')
+      .sort({ checkInTime: 1 });
+
+    // Return simplified data for calendar
+    const calendarBookings = bookings.map(booking => ({
+      _id: booking._id,
+      bookingNumber: booking.bookingNumber,
+      driverName: booking.driverName,
+      phone: booking.phone,
+      licensePlate: booking.licensePlate,
+      email: booking.email,
+      checkInTime: booking.checkInTime,
+      checkOutTime: booking.checkOutTime,
+      status: booking.status,
+      parkingType: booking.parkingType,
+      totalAmount: booking.totalAmount,
+      finalAmount: booking.finalAmount,
+      discountAmount: booking.discountAmount,
+      autoDiscountAmount: booking.autoDiscountAmount,
+      vipDiscount: booking.vipDiscount,
+      departureTerminal: booking.departureTerminal,
+      returnTerminal: booking.returnTerminal,
+      departurePassengerCount: booking.departurePassengerCount,
+      departureLuggageCount: booking.departureLuggageCount,
+      returnPassengerCount: booking.returnPassengerCount,
+      returnLuggageCount: booking.returnLuggageCount,
+      passengerCount: booking.passengerCount,
+      luggageCount: booking.luggageCount
+    }));
+
+    res.json({
+      bookings: calendarBookings,
+      total: calendarBookings.length
+    });
+  } catch (error) {
+    console.error('Error loading calendar bookings:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -580,7 +698,8 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    // Check if user has active bookings
+    // Check if user has active bookings - DISABLED to allow deletion
+    /*
     const activeBookings = await Booking.find({
       user: id,
       status: { $in: ['pending', 'confirmed', 'checked-in'] }
@@ -591,6 +710,7 @@ exports.deleteUser = async (req, res) => {
         message: 'Không thể xóa người dùng có đặt chỗ đang hoạt động' 
       });
     }
+    */
 
     // Delete user
     await User.findByIdAndDelete(id);
@@ -757,31 +877,45 @@ exports.updateBookingStatus = async (req, res) => {
       });
     }
 
-    // Validate status transitions
-    const validTransitions = {
-      'pending': ['checked-in', 'cancelled'],
-      'confirmed': ['checked-in', 'cancelled'],
-      'checked-in': ['checked-out']
-    };
+    // Validate status transitions - Relaxed for Admin to allow reverts
+    // const validTransitions = {
+    //   'pending': ['checked-in', 'cancelled', 'confirmed'],
+    //   'confirmed': ['checked-in', 'cancelled', 'pending'],
+    //   'checked-in': ['checked-out', 'confirmed'],
+    //   'checked-out': ['checked-in'],
+    //   'cancelled': ['confirmed', 'pending']
+    // };
 
     const currentStatus = booking.status;
-    const allowedTransitions = validTransitions[currentStatus] || [];
+    // const allowedTransitions = validTransitions[currentStatus] || [];
     
-    if (!allowedTransitions.includes(status)) {
-      return res.status(400).json({ 
-        message: `Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"` 
-      });
-    }
+    // if (!allowedTransitions.includes(status)) {
+    //   return res.status(400).json({ 
+    //     message: `Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"` 
+    //   });
+    // }
 
     // Update booking status
     booking.status = status;
+
+    // Handle cancellation reason
+    if (status === 'cancelled' && req.body.reason) {
+        const timestamp = new Date().toLocaleString('vi-VN');
+        const reasonNote = `\n[${timestamp}] Hủy đơn: ${req.body.reason}`;
+        booking.notes = booking.notes ? booking.notes + reasonNote : reasonNote;
+    }
     
     // Update actual check-in/out times
     if (status === 'checked-in') {
       booking.actualCheckInTime = new Date();
     } else if (status === 'checked-out') {
       booking.actualCheckOutTime = new Date();
+    } else if (status === 'confirmed' || status === 'pending') {
+        // Reset actual times if reverting
+        if (currentStatus === 'checked-in') booking.actualCheckInTime = undefined;
+        if (currentStatus === 'checked-out') booking.actualCheckOutTime = undefined;
     }
+
 
     await booking.save();
 
@@ -800,9 +934,68 @@ exports.updateBookingStatus = async (req, res) => {
   }
 };
 
+// Soft delete booking
+exports.deleteBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+    }
+
+    // If already deleted, return error or success?
+    if (booking.isDeleted) {
+      return res.status(400).json({ message: 'Đặt chỗ này đã bị xóa trước đó' });
+    }
+
+    booking.isDeleted = true;
+    booking.deletedAt = new Date();
+    booking.deletionReason = reason;
+    // We might want to change status to cancelled if it impacts availability logic
+    // But soft delete usually implies hiding.
+    // However, if we delete a confirmed booking, we should probably release the space?
+    // Let's release the space just in case, if not already released (e.g. checked-out/cancelled)
+    if (['pending', 'confirmed', 'checked-in'].includes(booking.status)) {
+       // Release space logic
+       if (booking.parkingType) {
+           await ParkingType.findByIdAndUpdate(booking.parkingType, {
+               $inc: { availableSpaces: booking.vehicleCount || 1 } 
+           });
+       }
+       // Update status to cancelled as well? Or keep original status? 
+       // Generally if deleted, it shouldn't count.
+       // Let's keep status as is for record, but isDeleted flag handles visibility.
+       // But availability logic might rely on status.
+       // My createManualBooking availability check looks at status: { $in: ['pending', 'confirmed', 'checked-in'] }
+       // It does NOT check isDeleted.
+       // So we MUST also change status to 'cancelled' OR update availability check.
+       // Updating status to 'cancelled' is safer for existing logic.
+       booking.status = 'cancelled';
+    }
+
+    await booking.save();
+
+    res.json({
+      message: 'Xóa đặt chỗ thành công',
+      booking: {
+        _id: booking._id,
+        isDeleted: booking.isDeleted,
+        deletedAt: booking.deletedAt
+      }
+    });
+  } catch (error) {
+    console.error('Delete booking error:', error);
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Create manual booking
 exports.createManualBooking = async (req, res) => {
   try {
+    console.log('🔍 [adminController.createManualBooking] Request Body:', JSON.stringify(req.body, null, 2));
+
     const {
       parkingTypeId,
       checkInTime,
@@ -811,39 +1004,125 @@ exports.createManualBooking = async (req, res) => {
       phone,
       email,
       licensePlate,
-      passengerCount,
-      luggageCount,
-      addonServices,
+      passengerCount = 1,
+      vehicleCount = 1,
+      luggageCount = 0,
+      departurePassengerCount = 1,
+      departureLuggageCount = 0,
+      returnPassengerCount = 1,
+      returnLuggageCount = 0,
+      addonServices = [],
+      discountCode,
+      estimatedArrivalTime,
+      flightNumber,
       notes,
-      createdBy
+      paymentStatus = 'pending',
+      paymentMethod = 'cash',
+      status = 'confirmed',
+      departureTerminal,
+      returnTerminal,
+      isVIP: isVIPPassed,
+      vipDiscount: vipDiscountPassed = 12
     } = req.body;
+
+    console.log(`🔍 [adminController.createManualBooking] vehicleCount: ${vehicleCount}, isVIP: ${isVIPPassed}, vipDiscount: ${vipDiscountPassed}`);
 
     // Check if parking type is available
     const parkingType = await ParkingType.findById(parkingTypeId);
-    if (!parkingType || !parkingType.isActive) {
-      return res.status(400).json({ message: 'Loại bãi đậu xe không khả dụng' });
+    if (!parkingType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+    }
+
+    if (!parkingType.isActive) {
+      return res.status(400).json({ message: 'Bãi đậu xe này hiện không hoạt động' });
+    }
+
+    // Check availability
+    const checkIn = new Date(checkInTime);
+    const checkOut = new Date(checkOutTime);
+
+    const overlappingBookings = await Booking.aggregate([
+      {
+        $match: {
+          parkingType: parkingType._id,
+          status: { $in: ['pending', 'confirmed', 'checked-in'] },
+          $or: [
+            {
+              checkInTime: { $lt: checkOut },
+              checkOutTime: { $gt: checkIn }
+            }
+          ]
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalVehicles: { $sum: { $ifNull: ["$vehicleCount", 1] } }
+        }
+      }
+    ]);
+
+    const usedSpaces = overlappingBookings.length > 0 ? overlappingBookings[0].totalVehicles : 0;
+    const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - usedSpaces);
+    const requestedVehicles = Math.max(1, parseInt(vehicleCount) || 1);
+
+    if (actualAvailableSpaces < requestedVehicles) {
+      return res.status(400).json({ message: 'Bãi đậu xe đã hết chỗ trong thời gian này' });
     }
 
     // Find or create user
-    let user = await User.findOne({ email });
-    if (!user) {
-      user = await User.create({
-        name: driverName,
-        email,
-        phone,
-        licensePlate,
-        password: Math.random().toString(36).slice(-8)
-      });
+    let user = await User.findOne({ phone });
+    if (!user && email) {
+      user = await User.findOne({ email });
     }
 
-    // Calculate price
+    if (!user) {
+      console.log('🔍 [adminController.createManualBooking] Creating new user...');
+      const password = phone.slice(-6) || '123456';
+      const isNewVIP = isVIPPassed === true || isVIPPassed === 'true';
+      user = await User.create({
+        name: driverName,
+        phone: phone,
+        email: email || undefined,
+        password: password,
+        licensePlate: licensePlate,
+        role: 'user',
+        isVIP: isNewVIP,
+        vipDiscount: isNewVIP ? (Number(vipDiscountPassed) || 12) : 0
+      });
+      console.log('🔍 [adminController.createManualBooking] Created new user:', user._id, 'isVIP:', user.isVIP, 'vipDiscount:', user.vipDiscount);
+    } else {
+      // Update existing user's VIP status if passed in request
+      if ((isVIPPassed === true || isVIPPassed === 'true') && !user.isVIP) {
+        user.isVIP = true;
+        user.vipDiscount = Number(vipDiscountPassed) || 12;
+        await user.save();
+        console.log('🔍 [adminController.createManualBooking] Updated existing user to VIP:', user._id);
+      }
+      console.log('🔍 [adminController.createManualBooking] Found user:', user._id, 'isVIP:', user.isVIP, 'vipDiscount:', user.vipDiscount);
+    }
+
+    // Calculate price using accurate logic
     const priceCalculation = await calculateBookingPrice({
       parkingTypeId,
       checkInTime,
       checkOutTime,
       addonServices,
+      discountCode,
       isVIP: user.isVIP,
-      luggageCount
+      userEmail: user.email,
+      phone: user.phone,
+      luggageCount: departureLuggageCount,
+      vehicleCount: requestedVehicles,
+      vipDiscountPassed: user.vipDiscount || Number(vipDiscountPassed) || 12
+    });
+
+    console.log('🔍 [adminController.createManualBooking] Price calculation:', {
+      basePrice: priceCalculation.pricing?.basePrice,
+      totalAmount: priceCalculation.totalAmount,
+      vipDiscount: priceCalculation.vipDiscount,
+      finalAmount: priceCalculation.finalAmount,
+      vehicleCount: requestedVehicles
     });
 
     // Create booking
@@ -854,38 +1133,96 @@ exports.createManualBooking = async (req, res) => {
       checkOutTime,
       driverName,
       phone,
-      email,
+      email: email || undefined,
       licensePlate,
-      passengerCount,
-      luggageCount,
+      passengerCount: departurePassengerCount,
+      vehicleCount: requestedVehicles,
+      luggageCount: departureLuggageCount,
+      departurePassengerCount,
+      departureLuggageCount,
+      returnPassengerCount,
+      returnLuggageCount,
       addonServices: priceCalculation.addonDetails,
-      notes,
+      discountCode: priceCalculation.discountCodeInfo,
+      autoDiscount: priceCalculation.autoDiscountInfo,
+      estimatedArrivalTime: estimatedArrivalTime || undefined,
+      flightNumber: flightNumber || undefined,
+      notes: notes || undefined,
       totalAmount: priceCalculation.totalAmount,
+      discountAmount: priceCalculation.discountAmount,
       finalAmount: priceCalculation.finalAmount,
       isVIP: user.isVIP,
       vipDiscount: priceCalculation.vipDiscount,
-      status: 'pending',
-      paymentStatus: 'paid',
-      paymentMethod: 'cash',
+      status: status,
+      paymentStatus: paymentStatus,
+      paymentMethod: paymentMethod,
+      departureTerminal: departureTerminal || undefined,
+      returnTerminal: returnTerminal || undefined,
       isManualBooking: true,
-      createdBy
+      createdBy: req.user?._id
     });
 
     // Update parking type availability
     await ParkingType.findByIdAndUpdate(parkingTypeId, {
-      $inc: { availableSpaces: -1 }
+      $inc: { availableSpaces: -requestedVehicles }
     });
+
+    // Populate booking data for response
+    const populatedBooking = await Booking.findById(booking._id)
+      .populate('parkingType', 'name type location pricePerDay')
+      .populate('addonServices.service', 'name icon price')
+      .populate('user', 'name email phone isVIP vipDiscount')
+      .populate('createdBy', 'name email');
+
+    // Construct complete response
+    const responseBooking = {
+      _id: populatedBooking._id,
+      bookingNumber: populatedBooking.bookingNumber,
+      driverName: populatedBooking.driverName,
+      phone: populatedBooking.phone,
+      email: populatedBooking.email,
+      licensePlate: populatedBooking.licensePlate,
+      checkInTime: populatedBooking.checkInTime,
+      checkOutTime: populatedBooking.checkOutTime,
+      vehicleCount: populatedBooking.vehicleCount,
+      passengerCount: populatedBooking.passengerCount,
+      luggageCount: populatedBooking.luggageCount,
+      departurePassengerCount: populatedBooking.departurePassengerCount,
+      departureLuggageCount: populatedBooking.departureLuggageCount,
+      returnPassengerCount: populatedBooking.returnPassengerCount,
+      returnLuggageCount: populatedBooking.returnLuggageCount,
+      status: populatedBooking.status,
+      paymentStatus: populatedBooking.paymentStatus,
+      paymentMethod: populatedBooking.paymentMethod,
+      basePrice: priceCalculation.pricing?.basePrice || 0,
+      totalAmount: populatedBooking.totalAmount,
+      discountAmount: populatedBooking.discountAmount || 0,
+      vipDiscount: populatedBooking.vipDiscount || 0,
+      autoDiscount: populatedBooking.autoDiscount,
+      finalAmount: populatedBooking.finalAmount,
+      isVIP: populatedBooking.isVIP,
+      parkingType: populatedBooking.parkingType,
+      user: populatedBooking.user,
+      addonServices: populatedBooking.addonServices,
+      departureTerminal: populatedBooking.departureTerminal,
+      returnTerminal: populatedBooking.returnTerminal,
+      flightNumber: populatedBooking.flightNumber,
+      notes: populatedBooking.notes,
+      estimatedArrivalTime: populatedBooking.estimatedArrivalTime,
+      dailyPrices: priceCalculation.pricing?.dailyPrices || [],
+      durationDays: priceCalculation.pricing?.durationDays || 0,
+      createdAt: populatedBooking.createdAt,
+      createdBy: populatedBooking.createdBy
+    };
+
+    console.log('🔍 [adminController.createManualBooking] Final response:', JSON.stringify(responseBooking, null, 2));
 
     res.status(201).json({
       message: 'Tạo đặt chỗ thủ công thành công',
-      booking: {
-        _id: booking._id,
-        bookingNumber: booking.bookingNumber,
-        status: booking.status,
-        finalAmount: booking.finalAmount
-      }
+      booking: responseBooking
     });
   } catch (error) {
+    console.error('🔍 [adminController.createManualBooking] Error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -896,62 +1233,169 @@ async function calculateBookingPrice({
   checkInTime,
   checkOutTime,
   addonServices = [],
+  discountCode = null,
   isVIP = false,
-  luggageCount = 0
+  userEmail = null,
+  phone = null,
+  luggageCount = 0,
+  vehicleCount = 1,
+  vipDiscountPassed = 12
 }) {
   const parkingType = await ParkingType.findById(parkingTypeId);
+  if (!parkingType) {
+    throw new Error('Không tìm thấy loại bãi đậu xe');
+  }
+
   const checkIn = new Date(checkInTime);
   const checkOut = new Date(checkOutTime);
   
-  // Calculate pricing using new day-based logic
+  // Calculate pricing using day-based logic
   const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
-  const totalBasePrice = pricing.totalPrice;
+  
+  // Multiply by vehicle count
+  const count = Math.max(1, parseInt(vehicleCount) || 1);
+  const totalBasePrice = pricing.totalPrice * count;
 
+  // Calculate addon services
   let addonTotal = 0;
   const addonDetails = [];
   
   for (const addonId of addonServices) {
     const addon = await AddonService.findById(addonId);
     if (addon && addon.isActive) {
-      addonTotal += addon.price;
+      // Addons charged per vehicle
+      const addonPrice = addon.price * count;
+      addonTotal += addonPrice;
       addonDetails.push({
         service: addon._id,
         name: addon.name,
-        price: addon.price,
+        price: addonPrice,
         icon: addon.icon
       });
     }
   }
 
-  // Calculate luggage fees
-  let luggageTotal = 0;
-  if (luggageCount > 0) {
-    const settings = await SystemSettings.getSettings();
-    const { freeLuggageCount, luggagePricePerItem } = settings.luggageSettings;
-    
-    const additionalLuggage = Math.max(0, luggageCount - freeLuggageCount);
-    luggageTotal = additionalLuggage * luggagePricePerItem;
+  // Calculate subtotal (base + addons)
+  const subtotal = totalBasePrice + addonTotal;
+
+  // Get user info for VIP calculations
+  let user = null;
+  if (phone) {
+    user = await User.findOne({ phone });
+  } else if (userEmail) {
+    user = await User.findOne({ email: userEmail });
   }
 
+  // Apply auto discounts first
+  let autoDiscountAmount = 0;
+  let autoDiscountInfo = null;
+  
+  const AutoDiscount = require('../models/AutoDiscount');
+  const autoDiscounts = await AutoDiscount.find({
+    isActive: true,
+    applicableParkingTypes: parkingTypeId,
+    validFrom: { $lte: new Date() },
+    validTo: { $gte: new Date() }
+  }).sort({ priority: -1 });
+
+  for (const autoDiscount of autoDiscounts) {
+    const bookingData = {
+      parkingTypeId,
+      checkInTime,
+      checkOutTime,
+      totalAmount: subtotal,
+      isVIP: isVIP,
+      userId: user?._id,
+      userRegistrationDate: user?.createdAt
+    };
+
+    if (autoDiscount.appliesToBooking(bookingData)) {
+      autoDiscountAmount = autoDiscount.calculateDiscount(bookingData);
+      autoDiscountInfo = {
+        _id: autoDiscount._id,
+        name: autoDiscount.name,
+        description: autoDiscount.description,
+        discountType: autoDiscount.discountType,
+        discountValue: autoDiscount.discountValue,
+        applyToSpecialPrices: autoDiscount.applyToSpecialPrices
+      };
+      break;
+    }
+  }
+
+  // Apply discount code
+  let discountAmount = 0;
+  let discountCodeInfo = null;
+  const DiscountCode = require('../models/DiscountCode');
+
+  if (discountCode && (!autoDiscountInfo || autoDiscountInfo.applyToSpecialPrices)) {
+    const code = await DiscountCode.findOne({ 
+      code: discountCode.toUpperCase().trim(),
+      isActive: true,
+      validFrom: { $lte: new Date() },
+      validTo: { $gte: new Date() }
+    });
+
+    if (code) {
+      if (code.discountType === 'percentage') {
+        discountAmount = subtotal * (code.discountValue / 100);
+      } else {
+        discountAmount = Math.min(code.discountValue, subtotal);
+      }
+      discountCodeInfo = {
+        code: code.code,
+        discountValue: code.discountValue,
+        discountType: code.discountType
+      };
+    }
+  }
+
+  // Calculate VIP discount
   let vipDiscount = 0;
   if (isVIP) {
-    const settings = await SystemSettings.getSettings();
-    vipDiscount = (totalBasePrice + addonTotal + luggageTotal) * (settings.defaultVIPDiscount / 100);
+    let vipDiscountPercent = 0;
+    
+    if (user) {
+      vipDiscountPercent = user.vipDiscount || 0;
+      console.log(`[adminController.calculateBookingPrice] Using user's vipDiscount: ${vipDiscountPercent}%`);
+    } else if (vipDiscountPassed > 0) {
+      vipDiscountPercent = vipDiscountPassed;
+      console.log(`[adminController.calculateBookingPrice] Using passed vipDiscount: ${vipDiscountPercent}%`);
+    } else {
+      vipDiscountPercent = 12;
+      console.log(`[adminController.calculateBookingPrice] Using default vipDiscount: ${vipDiscountPercent}%`);
+    }
+
+    if (vipDiscountPercent > 0) {
+      const amountAfterDiscounts = subtotal - autoDiscountAmount - discountAmount;
+      vipDiscount = amountAfterDiscounts * (vipDiscountPercent / 100);
+    }
   }
 
-  const totalAmount = totalBasePrice + addonTotal + luggageTotal;
-  const finalAmount = totalAmount - vipDiscount;
+  // Calculate final amounts
+  const totalAmount = subtotal;
+  const finalDiscount = autoDiscountAmount + discountAmount + vipDiscount;
+  const finalAmount = Math.max(0, totalAmount - finalDiscount);
+
+  console.log(`[adminController.calculateBookingPrice] Result: base=${totalBasePrice}, addons=${addonTotal}, subtotal=${subtotal}, autoDiscount=${autoDiscountAmount}, codeDiscount=${discountAmount}, vipDiscount=${vipDiscount}, final=${finalAmount}`);
 
   return {
-    pricePerDay: parkingType.pricePerDay,
-    durationDays: pricing.durationDays,
-    totalBasePrice,
-    addonTotal,
-    addonDetails,
-    luggageTotal,
     totalAmount,
+    autoDiscountAmount,
+    discountAmount,
     vipDiscount,
-    finalAmount
+    finalAmount,
+    addonDetails,
+    autoDiscountInfo,
+    discountCodeInfo,
+    pricing: {
+      basePrice: totalBasePrice,
+      addonTotal: addonTotal,
+      subtotal: subtotal,
+      durationDays: pricing.durationDays,
+      daysToCharge: pricing.daysToCharge,
+      dailyPrices: pricing.dailyPrices
+    }
   };
 }
 
@@ -1391,15 +1835,16 @@ exports.deleteAddonService = async (req, res) => {
     }
 
     // Check if service is being used in bookings
-    const usedBookings = await Booking.find({
-      'addonServices.service': id
-    });
+    // Check if service is being used in bookings - Disabled as per request to allow free deletion
+    // const usedBookings = await Booking.find({
+    //   'addonServices.service': id
+    // });
 
-    if (usedBookings.length > 0) {
-      return res.status(400).json({ 
-        message: 'Không thể xóa dịch vụ đang được sử dụng' 
-      });
-    }
+    // if (usedBookings.length > 0) {
+    //   return res.status(400).json({ 
+    //     message: 'Không thể xóa dịch vụ đang được sử dụng' 
+    //   });
+    // }
 
     // Delete service
     await AddonService.findByIdAndDelete(id);
