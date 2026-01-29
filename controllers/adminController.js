@@ -92,14 +92,20 @@ exports.getAllBookings = async (req, res) => {
       query.status = status;
     }
 
-    // Date range filter
+    // Date range filter: theo ngày check-in (from) / check-out (to)
+    // Chỉ dateFrom: booking có check-in từ ngày đó (checkInTime >= đầu ngày dateFrom)
+    // Chỉ dateTo: booking có check-out đến ngày đó (checkOutTime <= cuối ngày dateTo)
+    // Cả dateFrom + dateTo: booking có from-to nằm trong khoảng (checkIn >= dateFrom và checkOut <= dateTo)
     if (dateFrom || dateTo) {
-      query.createdAt = {};
-      if (dateFrom) {
-        query.createdAt.$gte = new Date(dateFrom);
-      }
-      if (dateTo) {
-        query.createdAt.$lte = new Date(dateTo);
+      if (dateFrom && dateTo) {
+        const rangeStart = new Date(dateFrom + 'T00:00:00.000Z');
+        const rangeEnd = new Date(dateTo + 'T23:59:59.999Z');
+        query.checkInTime = { $gte: rangeStart };
+        query.checkOutTime = { $lte: rangeEnd };
+      } else if (dateFrom) {
+        query.checkInTime = { $gte: new Date(dateFrom + 'T00:00:00.000Z') };
+      } else {
+        query.checkOutTime = { $lte: new Date(dateTo + 'T23:59:59.999Z') };
       }
     }
 
@@ -396,6 +402,131 @@ exports.getAllUsers = async (req, res) => {
       currentPage: parseInt(page)
     });
   } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Get all users with stats in one request (for admin users list)
+function computeStatsFromBookings(bookings) {
+  const totalBookings = bookings.length;
+  const totalSpent = bookings.reduce((sum, b) => sum + (b.finalAmount || 0), 0);
+  const averageSpent = totalBookings > 0 ? totalSpent / totalBookings : 0;
+  const lastBooking = totalBookings > 0 ? bookings[0].createdAt : null;
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const recentBookings = bookings.filter(b => b.createdAt >= thirtyDaysAgo);
+  const previousBookings = bookings.filter(b => b.createdAt >= sixtyDaysAgo && b.createdAt < thirtyDaysAgo);
+  let bookingTrend = 'stable';
+  if (recentBookings.length > previousBookings.length) bookingTrend = 'up';
+  else if (recentBookings.length < previousBookings.length) bookingTrend = 'down';
+  const recentBookingsList = bookings.slice(0, 5);
+  const completedBookings = bookings.filter(b => b.status === 'checked-out').length;
+  const cancelledBookings = bookings.filter(b => b.status === 'cancelled').length;
+  const pendingBookings = bookings.filter(b => b.status === 'pending').length;
+  const confirmedBookings = bookings.filter(b => b.status === 'confirmed').length;
+  const completedWithDuration = bookings.filter(b => b.status === 'checked-out');
+  const totalDuration = completedWithDuration.reduce((sum, b) => {
+    const duration = new Date(b.actualCheckOutTime || b.checkOutTime) - new Date(b.actualCheckInTime || b.checkInTime);
+    return sum + duration;
+  }, 0);
+  const averageDuration = completedWithDuration.length > 0
+    ? Math.round((totalDuration / completedWithDuration.length / (1000 * 60 * 60 * 24)) * 100) / 100
+    : 0;
+  const vipBookings = bookings.filter(b => b.isVIP);
+  const totalVipSavings = vipBookings.reduce((sum, b) => sum + (b.discountAmount || 0), 0);
+  return {
+    totalBookings,
+    totalSpent,
+    averageSpent,
+    lastBooking,
+    bookingTrend,
+    recentBookings: recentBookingsList,
+    completedBookings,
+    cancelledBookings,
+    pendingBookings,
+    confirmedBookings,
+    averageDuration,
+    totalVipSavings,
+    vipBookingsCount: vipBookings.length
+  };
+}
+
+exports.getAllUsersWithStats = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, search, role, isVIP, email, isActive } = req.query;
+    const query = {};
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+    if (email) query.email = email;
+    if (role) query.role = role;
+    if (isVIP !== undefined && isVIP !== '') query.isVIP = isVIP === 'true';
+    if (isActive !== undefined && isActive !== '') query.isActive = isActive === 'true';
+
+    const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 500);
+    const total = await User.countDocuments(query);
+    const totalPagesCalc = total === 0 ? 1 : Math.ceil(total / limitNum);
+    const pageNum = Math.max(1, Math.min(parseInt(page) || 1, totalPagesCalc));
+    const skip = (pageNum - 1) * limitNum;
+    const totalVip = query.isVIP === true ? total : (query.isVIP === false ? 0 : await User.countDocuments({ ...query, isVIP: true }));
+    const totalActive = query.isActive === true ? total : (query.isActive === false ? 0 : await User.countDocuments({ ...query, isActive: true }));
+
+    const users = await User.find(query)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean();
+
+    const totalPages = totalPagesCalc;
+    const userIds = users.map(u => u._id);
+
+    if (userIds.length === 0) {
+      return res.json({
+        users: users.map(u => ({ ...u, stats: computeStatsFromBookings([]) })),
+        total,
+        totalPages,
+        currentPage: pageNum,
+        totalVip,
+        totalActive
+      });
+    }
+
+    const allBookings = await Booking.find({ user: { $in: userIds } })
+      .populate('parkingType', 'name type')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const bookingsByUser = {};
+    for (const b of allBookings) {
+      const uid = (b.user && b.user._id ? b.user._id : b.user).toString();
+      if (!bookingsByUser[uid]) bookingsByUser[uid] = [];
+      bookingsByUser[uid].push(b);
+    }
+
+    const usersWithStats = users.map(u => {
+      const uid = u._id.toString();
+      const userBookings = bookingsByUser[uid] || [];
+      const stats = computeStatsFromBookings(userBookings);
+      return { ...u, stats };
+    });
+
+    res.json({
+      users: usersWithStats,
+      total,
+      totalPages,
+      currentPage: pageNum,
+      totalVip,
+      totalActive
+    });
+  } catch (error) {
+    console.error('getAllUsersWithStats error:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -928,6 +1059,46 @@ exports.updateBookingStatus = async (req, res) => {
         actualCheckOutTime: booking.actualCheckOutTime,
         bookingNumber: booking.bookingNumber
       }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
+// Update booking (full edit for admin)
+exports.updateBooking = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime', 'status', 'notes'];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        if (key === 'checkInTime' || key === 'checkOutTime') {
+          updates[key] = new Date(req.body[key]);
+        } else {
+          updates[key] = req.body[key];
+        }
+      }
+    }
+    if (updates.status) {
+      const validStatuses = ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled'];
+      if (!validStatuses.includes(updates.status)) {
+        return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+      }
+    }
+    const booking = await Booking.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    )
+      .populate('parkingType', 'name code type')
+      .populate('user', 'name phone email');
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+    }
+    res.json({
+      message: 'Cập nhật đặt chỗ thành công',
+      booking
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });

@@ -485,13 +485,20 @@ exports.createBooking = async (req, res) => {
     }
 
     if (!user) {
-      user = await User.create({
+      // Build user data - only include email if it has a valid value
+      const userData = {
         name: driverName,
-        email: email || undefined, // Allow empty email
         phone,
         licensePlate,
         password: Math.random().toString(36).slice(-8) // Generate random password
-      });
+      };
+      
+      // Only add email if it's not empty (avoid duplicate null key error)
+      if (email && email.trim()) {
+        userData.email = email.trim().toLowerCase();
+      }
+      
+      user = await User.create(userData);
     } else {
       // Update email if it was missing and now provided
       if (!user.email && email) {
@@ -776,16 +783,24 @@ exports.createManualBooking = async (req, res) => {
         // Let's create a user if it doesn't exist to satisfy foreign key.
         const password = phone.slice(-6) || '123456';
         const isNewVIP = isVIPPassed === true || isVIPPassed === 'true';
-        user = await User.create({
+        
+        // Build user data - only include email if it has a valid value
+        const userData = {
             name: driverName,
             phone: phone,
-            email: email || undefined,
             password: password,
             licensePlate: licensePlate,
             role: 'user',
             isVIP: isNewVIP,
             vipDiscount: isNewVIP ? (Number(vipDiscountPassed) || 12) : 0 // Set VIP discount when creating VIP user
-        });
+        };
+        
+        // Only add email if it's not empty (avoid duplicate null key error)
+        if (email && email.trim()) {
+            userData.email = email.trim().toLowerCase();
+        }
+        
+        user = await User.create(userData);
         console.log('🔍 [createManualBooking] Created new user:', user._id, 'isVIP:', isNewVIP, 'vipDiscount:', user.vipDiscount);
     } else {
         // Update existing user's VIP status if passed in request

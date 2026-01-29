@@ -77,10 +77,12 @@ router.get('/bookings/stats/:period', adminController.getBookingStats);
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/calendar', adminController.getCalendarBookings);
 router.patch('/bookings/:id/status', adminController.updateBookingStatus);
+router.put('/bookings/:id', adminController.updateBooking);
 router.delete('/bookings/:id', adminController.deleteBooking);
 router.post('/bookings/manual', adminController.createManualBooking);
 
 // Users management
+router.get('/users/with-stats', adminController.getAllUsersWithStats);
 router.get('/users', adminController.getAllUsers);
 router.post('/users', adminController.createUser);
 
