@@ -145,30 +145,24 @@ parkingTypeSchema.virtual('occupancyRate').get(function() {
   return ((this.totalSpaces - this.availableSpaces) / this.totalSpaces * 100).toFixed(2);
 });
 
-// Method to check if parking type is available for given time
+// Method to check if parking type is available for given time (occupied = SUM(vehicleCount), exclude deleted)
 parkingTypeSchema.methods.isAvailableForTime = async function(startTime, endTime) {
   const Booking = require('./Booking');
-  
-  // Check if there are any overlapping bookings
-  const overlappingBookings = await Booking.countDocuments({
-    parkingType: this._id,
-    status: { $in: ['pending', 'confirmed', 'checked-in'] },
-    $or: [
-      // New booking starts during existing booking
-      {
+
+  const agg = await Booking.aggregate([
+    {
+      $match: {
+        parkingType: this._id,
+        status: { $in: ['pending', 'confirmed', 'checked-in'] },
+        isDeleted: { $ne: true },
         checkInTime: { $lt: endTime },
         checkOutTime: { $gt: startTime }
-      },
-      // New booking completely contains existing booking
-      {
-        checkInTime: { $gte: startTime },
-        checkOutTime: { $lte: endTime }
       }
-    ]
-  });
-
-  // Check if we have enough available spaces
-  const availableSpaces = this.totalSpaces - overlappingBookings;
+    },
+    { $group: { _id: null, totalVehicles: { $sum: { $ifNull: ['$vehicleCount', 1] } } } }
+  ]);
+  const usedSpaces = agg.length > 0 ? agg[0].totalVehicles : 0;
+  const availableSpaces = this.totalSpaces - usedSpaces;
   return availableSpaces > 0;
 };
 

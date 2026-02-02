@@ -28,6 +28,53 @@ exports.getAllParkingTypes = async (req, res) => {
   }
 };
 
+// Helper: count occupied spaces = SUM(vehicleCount) of overlapping active bookings (exclude cancelled/deleted)
+function buildAvailabilityMatch(parkingTypeId, startOfRange, endOfRange) {
+  return {
+    parkingType: parkingTypeId,
+    status: { $in: ['pending', 'confirmed', 'checked-in'] },
+    isDeleted: { $ne: true },
+    $or: [
+      { checkInTime: { $lt: endOfRange }, checkOutTime: { $gt: startOfRange } }
+    ]
+  };
+}
+
+// Get today's availability for all parking types (for sidebar display)
+exports.getTodayAvailability = async (req, res) => {
+  try {
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const startOfDay = new Date(today);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const parkingTypes = await ParkingType.find({ isActive: true }).sort({ name: 1 });
+    const result = [];
+
+    for (const pt of parkingTypes) {
+      const agg = await Booking.aggregate([
+        { $match: buildAvailabilityMatch(pt._id, startOfDay, endOfDay) },
+        { $group: { _id: null, totalVehicles: { $sum: { $ifNull: ['$vehicleCount', 1] } } } }
+      ]);
+      const occupiedSpaces = agg.length > 0 ? agg[0].totalVehicles : 0;
+      const availableSpaces = Math.max(0, pt.totalSpaces - occupiedSpaces);
+      result.push({
+        id: pt._id,
+        name: pt.name,
+        totalSpaces: pt.totalSpaces,
+        availableSpaces,
+        occupiedSpaces
+      });
+    }
+
+    res.json({ date: dateStr, parking: result });
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 // Get parking type by ID
 exports.getParkingTypeById = async (req, res) => {
   try {
@@ -65,26 +112,19 @@ exports.getParkingTypeAvailability = async (req, res) => {
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Count overlapping bookings for this specific day
-    const overlappingBookings = await Booking.countDocuments({
-      parkingType: parkingType._id,
-      status: { $in: ['pending', 'confirmed', 'checked-in'] },
-      $or: [
-        {
-          checkInTime: { $lt: endOfDay },
-          checkOutTime: { $gt: startOfDay }
-        }
-      ]
-    });
-
-    const availableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
+    const agg = await Booking.aggregate([
+      { $match: buildAvailabilityMatch(parkingType._id, startOfDay, endOfDay) },
+      { $group: { _id: null, totalVehicles: { $sum: { $ifNull: ['$vehicleCount', 1] } } } }
+    ]);
+    const occupiedSpaces = agg.length > 0 ? agg[0].totalVehicles : 0;
+    const availableSpaces = Math.max(0, parkingType.totalSpaces - occupiedSpaces);
 
     res.json({
       parkingTypeId: parkingType._id,
       date: date,
       totalSpaces: parkingType.totalSpaces,
-      availableSpaces: availableSpaces,
-      occupiedSpaces: overlappingBookings,
+      availableSpaces,
+      occupiedSpaces,
       isAvailable: availableSpaces > 0
     });
   } catch (error) {
@@ -110,19 +150,15 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
     const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
     const endOfMonth = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
 
-    // Get all bookings for this month
     const monthBookings = await Booking.find({
       parkingType: parkingType._id,
       status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      isDeleted: { $ne: true },
       $or: [
-        {
-          checkInTime: { $lt: endOfMonth },
-          checkOutTime: { $gt: startOfMonth }
-        }
+        { checkInTime: { $lt: endOfMonth }, checkOutTime: { $gt: startOfMonth } }
       ]
-    });
+    }).select('checkInTime checkOutTime vehicleCount').lean();
 
-    // Calculate availability for each day in the month
     const daysInMonth = endOfMonth.getDate();
     const availabilityData = [];
 
@@ -133,22 +169,21 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
       const endOfDay = new Date(currentDate);
       endOfDay.setHours(23, 59, 59, 999);
 
-      // Count overlapping bookings for this day
-      const overlappingBookings = monthBookings.filter(booking => {
-        return booking.checkInTime < endOfDay && booking.checkOutTime > startOfDay;
-      }).length;
+      const occupiedSpaces = monthBookings
+        .filter(b => b.checkInTime < endOfDay && b.checkOutTime > startOfDay)
+        .reduce((sum, b) => sum + (b.vehicleCount || 1), 0);
 
-      const availableSpaces = Math.max(0, parkingType.totalSpaces - overlappingBookings);
+      const availableSpaces = Math.max(0, parkingType.totalSpaces - occupiedSpaces);
       const isInPast = currentDate < new Date();
 
       availabilityData.push({
         date: currentDate.toISOString().split('T')[0],
         isAvailable: !isInPast && availableSpaces > 0,
         availableSpaces: isInPast ? 0 : availableSpaces,
-        occupiedSpaces: overlappingBookings,
+        occupiedSpaces,
         totalSpaces: parkingType.totalSpaces,
         price: parkingType.pricePerDay,
-        isInPast: isInPast
+        isInPast
       });
     }
 
@@ -156,7 +191,7 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
       parkingTypeId: parkingType._id,
       year: parseInt(year),
       month: parseInt(month),
-      availabilityData: availabilityData
+      availabilityData
     });
   } catch (error) {
     res.status(500).json({ message: 'Lỗi server', error: error.message });

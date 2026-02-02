@@ -7,6 +7,7 @@ const { upload, processImages } = require('../middleware/upload');
 
 // Public routes
 router.get('/', parkingController.getAllParkingTypes);
+router.get('/today-availability', parkingController.getTodayAvailability);
 router.get('/:id', parkingController.getParkingTypeById);
 router.get('/:id/availability', parkingController.getParkingTypeAvailability);
 router.get('/:id/month-availability', parkingController.getParkingTypeMonthAvailability);

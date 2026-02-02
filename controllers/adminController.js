@@ -87,9 +87,13 @@ exports.getAllBookings = async (req, res) => {
       query.isDeleted = { $ne: true };
     }
 
-    // Status filter
+    // Status filter (pending = 等待進入 = cả pending + confirmed)
     if (status) {
-      query.status = status;
+      if (status === 'pending') {
+        query.status = { $in: ['pending', 'confirmed'] };
+      } else {
+        query.status = status;
+      }
     }
 
     // Date range filter: theo ngày check-in (from) / check-out (to)
@@ -202,9 +206,13 @@ exports.getCalendarBookings = async (req, res) => {
       query.isDeleted = { $ne: true };
     }
 
-    // Status filter
+    // Status filter (pending = 等待進入 = cả pending + confirmed)
     if (status) {
-      query.status = status;
+      if (status === 'pending') {
+        query.status = { $in: ['pending', 'confirmed'] };
+      } else {
+        query.status = status;
+      }
     }
 
     // Date range filter for calendar - use checkInTime and checkOutTime for better accuracy
@@ -1069,12 +1077,15 @@ exports.updateBookingStatus = async (req, res) => {
 exports.updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime', 'status', 'notes'];
+    const mongoose = require('mongoose');
+    const allowed = ['driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime', 'status', 'notes', 'parkingType'];
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
         if (key === 'checkInTime' || key === 'checkOutTime') {
           updates[key] = new Date(req.body[key]);
+        } else if (key === 'parkingType' && req.body[key]) {
+          updates[key] = mongoose.Types.ObjectId.isValid(req.body[key]) ? new mongoose.Types.ObjectId(req.body[key]) : req.body[key];
         } else {
           updates[key] = req.body[key];
         }
@@ -1217,6 +1228,7 @@ exports.createManualBooking = async (req, res) => {
         $match: {
           parkingType: parkingType._id,
           status: { $in: ['pending', 'confirmed', 'checked-in'] },
+          isDeleted: { $ne: true },
           $or: [
             {
               checkInTime: { $lt: checkOut },

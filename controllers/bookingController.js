@@ -37,7 +37,7 @@ exports.getBookingTerms = async (req, res) => {
 // Check availability for specific parking type and time
 exports.checkAvailability = async (req, res) => {
   try {
-    const { parkingTypeId, checkInTime, checkOutTime } = req.body;
+    const { parkingTypeId, checkInTime, checkOutTime, excludeBookingId } = req.body;
     
     if (!parkingTypeId || !checkInTime || !checkOutTime) {
       return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
@@ -68,9 +68,9 @@ exports.checkAvailability = async (req, res) => {
       });
     }
 
-    // Check if dates are in the future
+    // Check if dates are in the future (skip when editing: excludeBookingId = allow past checkIn for pricing)
     const now = new Date();
-    if (checkIn < now) {
+    if (!excludeBookingId && checkIn < now) {
       return res.status(400).json({ 
         success: false,
         message: 'Thời gian vào bãi không thể trong quá khứ' 
@@ -97,34 +97,80 @@ exports.checkAvailability = async (req, res) => {
       });
     }
 
-    // Count overlapping bookings for the specific time range
-    const overlappingBookings = await Booking.aggregate([
-      {
-        $match: {
-          parkingType: parkingType._id,
-          status: { $in: ['pending', 'confirmed', 'checked-in'] },
-          $or: [
-            {
-              checkInTime: { $lt: checkOut },
-              checkOutTime: { $gt: checkIn }
-            }
-          ]
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalVehicles: { $sum: { $ifNull: ["$vehicleCount", 1] } }
-        }
-      }
-    ]);
+    // Fetch all overlapping bookings (same filter as calendar / getParkingTypeMonthAvailability)
+    const matchQuery = {
+      parkingType: parkingType._id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      isDeleted: { $ne: true },
+      checkInTime: { $lt: checkOut },
+      checkOutTime: { $gt: checkIn }
+    };
+    if (excludeBookingId && mongoose.Types.ObjectId.isValid(excludeBookingId)) {
+      matchQuery._id = { $ne: new mongoose.Types.ObjectId(excludeBookingId) };
+    }
+    const overlappingList = await Booking.find(matchQuery)
+      .select('checkInTime checkOutTime vehicleCount _id')
+      .lean();
 
-    const usedSpaces = overlappingBookings.length > 0 ? overlappingBookings[0].totalVehicles : 0;
+    // Compute occupancy per day (Taiwan/local) and take MAX — same logic as calendar "min available"
+    // So "còn ít nhất 2 chỗ" = every day has at least 2 free = maxOccupied <= totalSpaces - 2
+    const perDayOccupancy = [];
+    let maxOccupied = 0;
+    const dayCursor = new Date(checkIn);
+    dayCursor.setHours(0, 0, 0, 0);
+    const endDate = new Date(checkOut);
+
+    const toLocalDateStr = (d) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    while (dayCursor <= endDate) {
+      const startOfDay = new Date(dayCursor);
+      const endOfDay = new Date(dayCursor);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const occupiedThisDay = overlappingList
+        .filter(b => b.checkInTime < endOfDay && b.checkOutTime > startOfDay)
+        .reduce((sum, b) => sum + (b.vehicleCount ?? 1), 0);
+
+      perDayOccupancy.push({
+        day: toLocalDateStr(startOfDay),
+        occupied: occupiedThisDay
+      });
+      maxOccupied = Math.max(maxOccupied, occupiedThisDay);
+      dayCursor.setDate(dayCursor.getDate() + 1);
+    }
+
+    const selectedRange = { from: toLocalDateStr(checkIn), to: toLocalDateStr(checkOut) };
+    const fullDays = perDayOccupancy
+      .filter(d => d.occupied >= parkingType.totalSpaces)
+      .map(d => d.day);
+
+    const usedSpaces = maxOccupied;
     const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - usedSpaces);
-    const isAvailable = actualAvailableSpaces >= (req.body.vehicleCount || 1);
-    
+    const vehicleCountNeeded = req.body.vehicleCount || 1;
+    const isAvailable = actualAvailableSpaces >= vehicleCountNeeded;
+
+    const wantDebug = req.body.debug === true || req.body.debug === 'true' || req.query.debug === 'true';
+    const oldMethodUsedSpaces = overlappingList.reduce((sum, b) => sum + (b.vehicleCount ?? 1), 0);
+
+    if (wantDebug) {
+      console.log('[checkAvailability]', {
+        parkingTypeId: parkingType._id.toString(),
+        checkIn: checkIn.toISOString(),
+        checkOut: checkOut.toISOString(),
+        excludeBookingId: excludeBookingId || null,
+        totalSpaces: parkingType.totalSpaces,
+        perDayOccupancy,
+        maxOccupied: usedSpaces,
+        actualAvailableSpaces,
+        vehicleCountNeeded,
+        isAvailable,
+        oldMethodUsedSpaces
+      });
+    }
+
     if (!isAvailable) {
-      return res.json({
+      const payload = {
         success: false,
         message: 'Bãi đậu xe đã hết chỗ trong thời gian này',
         availableSlots: [],
@@ -133,14 +179,18 @@ exports.checkAvailability = async (req, res) => {
           totalSpaces: parkingType.totalSpaces,
           occupiedSpaces: usedSpaces,
           availableSpaces: actualAvailableSpaces
-        }
-      });
+        },
+        selectedRange: { from: selectedRange.from, to: selectedRange.to },
+        fullDays
+      };
+      if (wantDebug) payload.debug = { perDayOccupancy, maxOccupied: usedSpaces, oldMethodUsedSpaces };
+      return res.json(payload);
     }
 
     // Calculate pricing using new day-based logic
     const pricing = await parkingType.calculatePriceForRange(checkIn, checkOut);
 
-    res.json({
+    const payload = {
       success: true,
       availableSpaces: actualAvailableSpaces,
       availableSlots: [{
@@ -162,7 +212,9 @@ exports.checkAvailability = async (req, res) => {
         availableSpaces: actualAvailableSpaces,
         occupancyRate: ((usedSpaces / parkingType.totalSpaces) * 100).toFixed(1)
       }
-    });
+    };
+    if (wantDebug) payload.debug = { perDayOccupancy, maxOccupied: usedSpaces, oldMethodUsedSpaces };
+    res.json(payload);
   } catch (error) {
     console.error('Error checking availability:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
@@ -210,6 +262,7 @@ exports.getAvailableParkingTypes = async (req, res) => {
             $match: {
               parkingType: parkingType._id,
               status: { $in: ['pending', 'confirmed', 'checked-in'] },
+              isDeleted: { $ne: true },
               $or: [
                 {
                   checkInTime: { $lt: checkOut },
@@ -557,6 +610,7 @@ exports.createBooking = async (req, res) => {
         $match: {
           parkingType: parkingType._id,
           status: { $in: ['pending', 'confirmed', 'checked-in'] },
+          isDeleted: { $ne: true },
           $or: [
             {
               checkInTime: { $lt: checkOut },
@@ -740,6 +794,7 @@ exports.createManualBooking = async (req, res) => {
         $match: {
           parkingType: parkingType._id,
           status: { $in: ['pending', 'confirmed', 'checked-in'] },
+          isDeleted: { $ne: true },
           $or: [
             {
               checkInTime: { $lt: checkOut },
