@@ -96,20 +96,22 @@ exports.getAllBookings = async (req, res) => {
       }
     }
 
-    // Date range filter: theo ngày check-in (from) / check-out (to)
-    // Chỉ dateFrom: booking có check-in từ ngày đó (checkInTime >= đầu ngày dateFrom)
-    // Chỉ dateTo: booking có check-out đến ngày đó (checkOutTime <= cuối ngày dateTo)
-    // Cả dateFrom + dateTo: booking có from-to nằm trong khoảng (checkIn >= dateFrom và checkOut <= dateTo)
+    // Date range filter: lọc theo ngày Đài Loan (UTC+8), khớp với ngày hiển thị trên UI
+    // Chỉ dateFrom: checkInTime rơi vào ngày dateFrom (theo giờ Đài Loan)
+    // Chỉ dateTo: checkOutTime rơi vào ngày dateTo (theo giờ Đài Loan)
+    // Cả dateFrom + dateTo: ngày bắt đầu đúng dateFrom và ngày kết thúc đúng dateTo (Đài Loan)
+    const dateFromStart = dateFrom ? new Date(dateFrom + 'T00:00:00.000+08:00') : null;
+    const dateFromEnd = dateFrom ? new Date(dateFrom + 'T23:59:59.999+08:00') : null;
+    const dateToStart = dateTo ? new Date(dateTo + 'T00:00:00.000+08:00') : null;
+    const dateToEnd = dateTo ? new Date(dateTo + 'T23:59:59.999+08:00') : null;
     if (dateFrom || dateTo) {
       if (dateFrom && dateTo) {
-        const rangeStart = new Date(dateFrom + 'T00:00:00.000Z');
-        const rangeEnd = new Date(dateTo + 'T23:59:59.999Z');
-        query.checkInTime = { $gte: rangeStart };
-        query.checkOutTime = { $lte: rangeEnd };
+        query.checkInTime = { $gte: dateFromStart, $lte: dateFromEnd };
+        query.checkOutTime = { $gte: dateToStart, $lte: dateToEnd };
       } else if (dateFrom) {
-        query.checkInTime = { $gte: new Date(dateFrom + 'T00:00:00.000Z') };
+        query.checkInTime = { $gte: dateFromStart, $lte: dateFromEnd };
       } else {
-        query.checkOutTime = { $lte: new Date(dateTo + 'T23:59:59.999Z') };
+        query.checkOutTime = { $gte: dateToStart, $lte: dateToEnd };
       }
     }
 
