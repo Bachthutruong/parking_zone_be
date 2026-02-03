@@ -7,6 +7,20 @@ const User = require('../models/User');
 const Terms = require('../models/Terms');
 const NotificationTemplate = require('../models/NotificationTemplate');
 
+const TAIWAN_TZ = 'Asia/Taipei';
+
+/** Get YYYY-MM-DD in Taiwan for a Date (must match bookingController.checkAvailability) */
+function toTaiwanDateStr(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: TAIWAN_TZ });
+}
+
+/** Next calendar day in Taiwan (YYYY-MM-DD) */
+function nextTaiwanDay(dayStr) {
+  const d = new Date(dayStr + 'T12:00:00+08:00');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toLocaleDateString('en-CA', { timeZone: TAIWAN_TZ });
+}
+
 // Dashboard statistics
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -1221,34 +1235,39 @@ exports.createManualBooking = async (req, res) => {
       return res.status(400).json({ message: 'Bãi đậu xe này hiện không hoạt động' });
     }
 
-    // Check availability
+    // Check availability: same per-Taiwan-day logic as bookingController.checkAvailability and Bookings.tsx calendar.
+    // "Còn trống" = for each Taiwan calendar day in [checkIn, checkOut], occupied <= totalSpaces - requested; take max occupied over days.
     const checkIn = new Date(checkInTime);
     const checkOut = new Date(checkOutTime);
 
-    const overlappingBookings = await Booking.aggregate([
-      {
-        $match: {
-          parkingType: parkingType._id,
-          status: { $in: ['pending', 'confirmed', 'checked-in'] },
-          isDeleted: { $ne: true },
-          $or: [
-            {
-              checkInTime: { $lt: checkOut },
-              checkOutTime: { $gt: checkIn }
-            }
-          ]
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalVehicles: { $sum: { $ifNull: ["$vehicleCount", 1] } }
-        }
-      }
-    ]);
+    const matchQuery = {
+      parkingType: parkingType._id,
+      status: { $in: ['pending', 'confirmed', 'checked-in'] },
+      isDeleted: { $ne: true },
+      checkInTime: { $lt: checkOut },
+      checkOutTime: { $gt: checkIn }
+    };
+    const overlappingList = await Booking.find(matchQuery)
+      .select('checkInTime checkOutTime vehicleCount')
+      .lean();
 
-    const usedSpaces = overlappingBookings.length > 0 ? overlappingBookings[0].totalVehicles : 0;
-    const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - usedSpaces);
+    let dayStr = toTaiwanDateStr(checkIn);
+    const endDayStr = toTaiwanDateStr(checkOut);
+    let maxOccupied = 0;
+
+    while (dayStr <= endDayStr) {
+      const startOfDay = new Date(dayStr + 'T00:00:00.000+08:00');
+      const endOfDay = new Date(dayStr + 'T23:59:59.999+08:00');
+
+      const occupiedThisDay = overlappingList
+        .filter(b => b.checkInTime < endOfDay && b.checkOutTime > startOfDay)
+        .reduce((sum, b) => sum + (b.vehicleCount ?? 1), 0);
+
+      maxOccupied = Math.max(maxOccupied, occupiedThisDay);
+      dayStr = nextTaiwanDay(dayStr);
+    }
+
+    const actualAvailableSpaces = Math.max(0, parkingType.totalSpaces - maxOccupied);
     const requestedVehicles = Math.max(1, parseInt(vehicleCount) || 1);
 
     if (actualAvailableSpaces < requestedVehicles) {
