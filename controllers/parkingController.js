@@ -24,7 +24,7 @@ exports.getAllParkingTypes = async (req, res) => {
 
     res.json({ parkingTypes: parkingTypesWithCapacity });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -40,15 +40,19 @@ function buildAvailabilityMatch(parkingTypeId, startOfRange, endOfRange) {
   };
 }
 
+const TAIWAN_TZ = 'Asia/Taipei';
+function toTaiwanDateStr(d) {
+  return d.toLocaleDateString('en-CA', { timeZone: TAIWAN_TZ });
+}
+
 // Get today's availability for all parking types (for sidebar display)
+// Uses Taiwan date to match calendar view on admin/bookings
 exports.getTodayAvailability = async (req, res) => {
   try {
-    const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
-    const startOfDay = new Date(today);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(today);
-    endOfDay.setHours(23, 59, 59, 999);
+    const now = new Date();
+    const dateStr = toTaiwanDateStr(now);
+    const startOfDay = new Date(`${dateStr}T00:00:00.000+08:00`);
+    const endOfDay = new Date(`${dateStr}T23:59:59.999+08:00`);
 
     const parkingTypes = await ParkingType.find({ isActive: true }).sort({ name: 1 });
     const result = [];
@@ -71,7 +75,7 @@ exports.getTodayAvailability = async (req, res) => {
 
     res.json({ date: dateStr, parking: result });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -82,12 +86,12 @@ exports.getParkingTypeById = async (req, res) => {
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     res.json({ parkingType });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -99,11 +103,11 @@ exports.getParkingTypeAvailability = async (req, res) => {
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     if (!date) {
-      return res.status(400).json({ message: 'Thiếu thông tin ngày' });
+      return res.status(400).json({ message: '請提供日期' });
     }
 
     const targetDate = new Date(date);
@@ -128,7 +132,7 @@ exports.getParkingTypeAvailability = async (req, res) => {
       isAvailable: availableSpaces > 0
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -140,11 +144,11 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     if (!year || !month) {
-      return res.status(400).json({ message: 'Thiếu thông tin năm hoặc tháng' });
+      return res.status(400).json({ message: '請提供年份或月份' });
     }
 
     const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
@@ -194,7 +198,7 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
       availabilityData
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -227,11 +231,11 @@ exports.createParkingType = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo loại bãi đậu xe thành công',
+      message: '建立停車類型成功',
       parkingType
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -244,7 +248,7 @@ exports.updateParkingType = async (req, res) => {
     // Get current parking type to calculate used spaces
     const currentParkingType = await ParkingType.findById(id);
     if (!currentParkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     // Handle totalSpaces and availableSpaces updates to prevent negative availableSpaces
@@ -282,11 +286,11 @@ exports.updateParkingType = async (req, res) => {
     );
 
     res.json({
-      message: 'Cập nhật loại bãi đậu xe thành công',
+      message: '停車類型更新成功',
       parkingType
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -303,18 +307,18 @@ exports.deleteParkingType = async (req, res) => {
 
     if (activeBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa loại bãi đậu xe có đặt chỗ đang hoạt động' 
+        message: '無法刪除有進行中預約的停車類型' 
       });
     }
 
     const parkingType = await ParkingType.findByIdAndDelete(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
-    res.json({ message: 'Xóa loại bãi đậu xe thành công' });
+    res.json({ message: '刪除停車類型成功' });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -347,11 +351,11 @@ exports.createParkingLot = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo bãi đậu xe thành công',
+      message: '建立停車場成功',
       parkingLot
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -368,15 +372,15 @@ exports.updateParkingLot = async (req, res) => {
     );
 
     if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
     res.json({
-      message: 'Cập nhật bãi đậu xe thành công',
+      message: '停車場更新成功',
       parkingLot
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -393,18 +397,18 @@ exports.deleteParkingLot = async (req, res) => {
 
     if (activeBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa bãi đậu xe có đặt chỗ đang hoạt động' 
+        message: '無法刪除有進行中預約的停車場' 
       });
     }
 
     const parkingLot = await ParkingLot.findByIdAndDelete(id);
     if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
-    res.json({ message: 'Xóa bãi đậu xe thành công' });
+    res.json({ message: '刪除停車場成功' });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -416,7 +420,7 @@ exports.addSpecialPrice = async (req, res) => {
 
     const parkingLot = await ParkingLot.findById(id);
     if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
     // Check if special price already exists for this date
@@ -434,11 +438,11 @@ exports.addSpecialPrice = async (req, res) => {
     await parkingLot.save();
 
     res.json({
-      message: 'Thêm giá đặc biệt thành công',
+      message: '新增特殊價格成功',
       parkingLot
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -449,7 +453,7 @@ exports.removeSpecialPrice = async (req, res) => {
 
     const parkingLot = await ParkingLot.findById(id);
     if (!parkingLot) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
     parkingLot.specialPrices = parkingLot.specialPrices.filter(
@@ -459,11 +463,11 @@ exports.removeSpecialPrice = async (req, res) => {
     await parkingLot.save();
 
     res.json({
-      message: 'Xóa giá đặc biệt thành công',
+      message: '刪除特殊價格成功',
       parkingLot
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -474,12 +478,12 @@ exports.uploadImages = async (req, res) => {
     const { processedImages } = req;
 
     if (!processedImages || processedImages.length === 0) {
-      return res.status(400).json({ message: 'Không có hình ảnh nào được tải lên' });
+      return res.status(400).json({ message: '未上傳任何圖片' });
     }
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     // Store original availableSpaces to prevent validation error
@@ -496,13 +500,13 @@ exports.uploadImages = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Tải lên hình ảnh thành công',
+      message: '圖片上傳成功',
       images: processedImages,
       totalImages: parkingType.images.length
     });
   } catch (error) {
     console.error('Upload images error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -513,12 +517,12 @@ exports.deleteImage = async (req, res) => {
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     const imageIndex = parkingType.images.findIndex(img => img._id.toString() === imageId);
     if (imageIndex === -1) {
-      return res.status(404).json({ message: 'Không tìm thấy hình ảnh' });
+      return res.status(404).json({ message: '找不到圖片' });
     }
 
     const image = parkingType.images[imageIndex];
@@ -550,12 +554,12 @@ exports.deleteImage = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Xóa hình ảnh thành công',
+      message: '刪除圖片成功',
       remainingImages: parkingType.images.length
     });
   } catch (error) {
     console.error('Delete image error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -567,7 +571,7 @@ exports.updateImageOrder = async (req, res) => {
 
     const parkingType = await ParkingType.findById(id);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     // Store original availableSpaces to prevent validation error
@@ -592,12 +596,12 @@ exports.updateImageOrder = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Cập nhật thứ tự hình ảnh thành công',
+      message: '圖片順序更新成功',
       images: parkingType.images
     });
   } catch (error) {
     console.error('Update image order error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 

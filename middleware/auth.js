@@ -7,24 +7,24 @@ const auth = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
     
     if (!token) {
-      return res.status(401).json({ message: 'Không có token xác thực' });
+      return res.status(401).json({ message: '未提供驗證憑證' });
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.userId).select('-password');
     
     if (!user) {
-      return res.status(401).json({ message: 'Token không hợp lệ' });
+      return res.status(401).json({ message: '憑證無效' });
     }
 
     if (!user.isActive) {
-      return res.status(401).json({ message: 'Tài khoản đã bị vô hiệu hóa' });
+      return res.status(401).json({ message: '帳號已停用' });
     }
 
     req.user = user;
     next();
   } catch (error) {
-    res.status(401).json({ message: 'Token không hợp lệ' });
+    res.status(401).json({ message: '憑證無效' });
   }
 };
 
@@ -32,12 +32,12 @@ const auth = async (req, res, next) => {
 const requireRole = (roles) => {
   return (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ message: 'Yêu cầu xác thực' });
+      return res.status(401).json({ message: '需要驗證' });
     }
 
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({ 
-        message: 'Không có quyền truy cập. Yêu cầu quyền: ' + roles.join(', ') 
+        message: '無存取權限，所需角色：' + roles.join('、') 
       });
     }
 

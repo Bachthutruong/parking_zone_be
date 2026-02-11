@@ -24,7 +24,7 @@ const register = async (req, res) => {
 
     if (existingUser) {
       return res.status(400).json({
-        error: 'User already exists with this phone number or email'
+        error: '此電話號碼或電子郵件已被註冊'
       });
     }
 
@@ -43,7 +43,7 @@ const register = async (req, res) => {
     const token = generateToken(user._id);
 
     res.status(201).json({
-      message: 'User registered successfully',
+      message: '註冊成功',
       token,
       user: {
         id: user._id,
@@ -57,7 +57,7 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Server error during registration' });
+    res.status(500).json({ error: '註冊時發生伺服器錯誤' });
   }
 };
 
@@ -69,13 +69,13 @@ const login = async (req, res) => {
     // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: '帳號或密碼錯誤' });
     }
 
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: '帳號或密碼錯誤' });
     }
 
     // Update last login
@@ -86,7 +86,7 @@ const login = async (req, res) => {
     const token = generateToken(user._id);
 
     res.json({
-      message: 'Login successful',
+      message: '登入成功',
       token,
       user: {
         id: user._id,
@@ -100,7 +100,7 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Server error during login' });
+    res.status(500).json({ error: '登入時發生伺服器錯誤' });
   }
 };
 
@@ -111,7 +111,7 @@ const getProfile = async (req, res) => {
     res.json({ user });
   } catch (error) {
     console.error('Get profile error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: '伺服器錯誤' });
   }
 };
 
@@ -122,7 +122,7 @@ const updateProfile = async (req, res) => {
     
     const user = await User.findById(req.user.id);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: '找不到使用者' });
     }
 
     // Update fields
@@ -134,7 +134,7 @@ const updateProfile = async (req, res) => {
     await user.save();
 
     res.json({
-      message: 'Profile updated successfully',
+      message: '個人資料更新成功',
       user: {
         id: user._id,
         name: user.name,
@@ -149,7 +149,7 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error('Update profile error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: '伺服器錯誤' });
   }
 };
 
@@ -160,23 +160,23 @@ const changePassword = async (req, res) => {
 
     const user = await User.findById(req.user.id);
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ error: '找不到使用者' });
     }
 
     // Verify current password
     const isCurrentPasswordValid = await user.comparePassword(currentPassword);
     if (!isCurrentPasswordValid) {
-      return res.status(400).json({ error: 'Current password is incorrect' });
+      return res.status(400).json({ error: '目前密碼不正確' });
     }
 
     // Update password
     user.password = newPassword;
     await user.save();
 
-    res.json({ message: 'Password changed successfully' });
+    res.json({ message: '密碼變更成功' });
   } catch (error) {
     console.error('Change password error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: '伺服器錯誤' });
   }
 };
 
@@ -191,7 +191,7 @@ const getBookingTerms = async (req, res) => {
     });
   } catch (error) {
     console.error('Get booking terms error:', error);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: '伺服器錯誤' });
   }
 };
 
@@ -203,7 +203,7 @@ const checkVIPStatus = async (req, res) => {
     if (!phone && !email) {
       return res.status(400).json({ 
         success: false,
-        message: 'Số điện thoại hoặc Email là bắt buộc' 
+        message: '請輸入電話號碼或電子郵件' 
       });
     }
 
@@ -220,7 +220,7 @@ const checkVIPStatus = async (req, res) => {
     if (!user) {
       return res.json({
         success: false,
-        message: 'Không tìm thấy người dùng',
+        message: '找不到使用者',
         isVIP: false,
         vipDiscount: 0
       });
@@ -228,7 +228,7 @@ const checkVIPStatus = async (req, res) => {
 
     res.json({
       success: true,
-      message: user.isVIP ? 'Người dùng là VIP' : 'Người dùng không phải VIP',
+      message: user.isVIP ? '此使用者為 VIP 會員' : '此使用者非 VIP 會員',
       user: {
         _id: user._id,
         name: user.name,
@@ -246,7 +246,7 @@ const checkVIPStatus = async (req, res) => {
     console.error('Error checking VIP status:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Lỗi server khi kiểm tra VIP status',
+      message: '查詢 VIP 狀態時發生伺服器錯誤',
       error: error.message 
     });
   }
@@ -260,7 +260,7 @@ const checkVIPByCode = async (req, res) => {
     if (!vipCode) {
       return res.status(400).json({ 
         success: false,
-        message: 'Mã VIP là bắt buộc' 
+        message: '請輸入 VIP 代碼' 
       });
     }
 
@@ -274,7 +274,7 @@ const checkVIPByCode = async (req, res) => {
     if (!user) {
       return res.json({
         success: false,
-        message: 'Mã VIP không hợp lệ hoặc không tồn tại',
+        message: 'VIP 代碼無效或不存在',
         isVIP: false,
         vipDiscount: 0
       });
@@ -282,7 +282,7 @@ const checkVIPByCode = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Mã VIP hợp lệ',
+      message: 'VIP 代碼有效',
       user: {
         _id: user._id,
         name: user.name,
@@ -300,7 +300,7 @@ const checkVIPByCode = async (req, res) => {
     console.error('Error checking VIP by code:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Lỗi server khi kiểm tra mã VIP',
+      message: '查詢 VIP 代碼時發生伺服器錯誤',
       error: error.message 
     });
   }

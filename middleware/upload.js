@@ -118,7 +118,7 @@ const processImages = async (req, res, next) => {
   } catch (error) {
     console.error('Image processing error:', error);
     res.status(500).json({ 
-      message: 'Lỗi xử lý hình ảnh', 
+      message: '圖片處理失敗', 
       error: error.message 
     });
   }

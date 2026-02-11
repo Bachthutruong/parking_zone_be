@@ -72,7 +72,7 @@ exports.getDashboardStats = async (req, res) => {
       recentBookings
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -197,7 +197,7 @@ exports.getAllBookings = async (req, res) => {
       currentPage: parseInt(page)
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -272,7 +272,7 @@ exports.getCalendarBookings = async (req, res) => {
       .populate('user', 'name email isVIP')
       .sort({ checkInTime: 1 });
 
-    // Return simplified data for calendar
+    // Return simplified data for calendar (include vehicleCount for accurate occupancy calculation)
     const calendarBookings = bookings.map(booking => ({
       _id: booking._id,
       bookingNumber: booking.bookingNumber,
@@ -284,6 +284,7 @@ exports.getCalendarBookings = async (req, res) => {
       checkOutTime: booking.checkOutTime,
       status: booking.status,
       parkingType: booking.parkingType,
+      vehicleCount: booking.vehicleCount ?? 1,
       totalAmount: booking.totalAmount,
       finalAmount: booking.finalAmount,
       discountAmount: booking.discountAmount,
@@ -296,7 +297,8 @@ exports.getCalendarBookings = async (req, res) => {
       returnPassengerCount: booking.returnPassengerCount,
       returnLuggageCount: booking.returnLuggageCount,
       passengerCount: booking.passengerCount,
-      luggageCount: booking.luggageCount
+      luggageCount: booking.luggageCount,
+      isDeleted: booking.isDeleted
     }));
 
     res.json({
@@ -305,7 +307,7 @@ exports.getCalendarBookings = async (req, res) => {
     });
   } catch (error) {
     console.error('Error loading calendar bookings:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -370,7 +372,7 @@ exports.getBookingStats = async (req, res) => {
       }))
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -426,7 +428,7 @@ exports.getAllUsers = async (req, res) => {
       currentPage: parseInt(page)
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -551,7 +553,7 @@ exports.getAllUsersWithStats = async (req, res) => {
     });
   } catch (error) {
     console.error('getAllUsersWithStats error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -563,7 +565,7 @@ exports.getUserStats = async (req, res) => {
     // Get user
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+      return res.status(404).json({ message: '找不到使用者' });
     }
 
     // Get all bookings for this user
@@ -639,7 +641,7 @@ exports.getUserStats = async (req, res) => {
     res.json({ stats });
   } catch (error) {
     console.error('Error getting user stats:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -653,17 +655,17 @@ exports.updateUserVIP = async (req, res) => {
 
     // Validate input
     if (typeof isVIP !== 'boolean') {
-      return res.status(400).json({ message: 'isVIP phải là boolean' });
+      return res.status(400).json({ message: 'isVIP 必須為布林值' });
     }
 
     if (isVIP && (vipDiscount === undefined || vipDiscount < 0 || vipDiscount > 100)) {
-      return res.status(400).json({ message: 'vipDiscount phải từ 0 đến 100 khi isVIP là true' });
+      return res.status(400).json({ message: '當 isVIP 為 true 時，vipDiscount 必須介於 0 到 100' });
     }
 
     // Get user first to check current status
     const user = await User.findById(id);
     if (!user) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+      return res.status(404).json({ message: '找不到使用者' });
     }
 
     // Prepare update data
@@ -698,12 +700,12 @@ exports.updateUserVIP = async (req, res) => {
     console.log('🔍 Updated User:', updatedUser);
 
     res.json({
-      message: 'Cập nhật VIP thành công',
+      message: 'VIP 更新成功',
       user: updatedUser
     });
   } catch (error) {
     console.error('🔍 VIP Update Error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -716,7 +718,7 @@ exports.updateUser = async (req, res) => {
     // Get user first to check current status
     const existingUser = await User.findById(id);
     if (!existingUser) {
-      return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+      return res.status(404).json({ message: '找不到使用者' });
     }
 
     // Handle VIP code generation if VIP status is being set
@@ -745,7 +747,7 @@ exports.updateUser = async (req, res) => {
     const user = await existingUser.save();
 
     res.json({
-      message: 'Cập nhật thông tin người dùng thành công',
+      message: '使用者資訊更新成功',
       user: {
         _id: user._id,
         name: user.name,
@@ -761,7 +763,7 @@ exports.updateUser = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -788,7 +790,7 @@ exports.createUser = async (req, res) => {
 
     if (existingUser) {
       return res.status(400).json({ 
-        message: 'Email hoặc số điện thoại đã tồn tại' 
+        message: '電子郵件或電話號碼已存在' 
       });
     }
 
@@ -822,12 +824,12 @@ exports.createUser = async (req, res) => {
     delete userResponse.password;
 
     res.status(201).json({
-      message: 'Tạo người dùng thành công',
+      message: '建立使用者成功',
       user: userResponse
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -842,14 +844,14 @@ exports.deleteUser = async (req, res) => {
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy người dùng' 
+        message: '找不到使用者' 
       });
     }
 
     // Check if user is admin (prevent deleting admin)
     if (user.role === 'admin') {
       return res.status(403).json({ 
-        message: 'Không thể xóa tài khoản admin' 
+        message: '無法刪除管理員帳號' 
       });
     }
 
@@ -862,7 +864,7 @@ exports.deleteUser = async (req, res) => {
 
     if (activeBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa người dùng có đặt chỗ đang hoạt động' 
+        message: '無法刪除有進行中預約的使用者' 
       });
     }
     */
@@ -871,11 +873,11 @@ exports.deleteUser = async (req, res) => {
     await User.findByIdAndDelete(id);
 
     res.json({ 
-      message: 'Xóa người dùng thành công' 
+      message: '刪除使用者成功' 
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -887,7 +889,7 @@ exports.getSystemSettings = async (req, res) => {
     const settings = await SystemSettings.getSettings();
     res.json(settings);
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -932,11 +934,11 @@ exports.updateSystemSettings = async (req, res) => {
     await settings.save();
 
     res.json({
-      message: 'Cập nhật cài đặt thành công',
+      message: '設定更新成功',
       settings
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -967,7 +969,7 @@ exports.getParkingTypeStats = async (req, res) => {
 
     res.json({ parkingTypes: stats });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1005,7 +1007,74 @@ exports.getCurrentParkingStatus = async (req, res) => {
       leavingToday
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+// Bulk update booking status (multiple bookings at once)
+exports.updateBulkBookingStatus = async (req, res) => {
+  try {
+    const { bookingIds, status, reason } = req.body;
+
+    if (!Array.isArray(bookingIds) || bookingIds.length === 0) {
+      return res.status(400).json({ message: '請提供預約 ID 清單' });
+    }
+
+    const validStatuses = ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: '狀態無效' });
+    }
+
+    const results = { success: [], failed: [] };
+    const now = new Date();
+
+    for (const id of bookingIds) {
+      try {
+        const booking = await Booking.findById(id);
+        if (!booking) {
+          results.failed.push({ id, error: '找不到預約' });
+          continue;
+        }
+
+        // Prevent status changes for completed bookings (same as single update)
+        if (booking.status === 'checked-out' || booking.status === 'cancelled') {
+          if (status !== 'checked-in' && status !== 'confirmed' && status !== 'pending') {
+            results.failed.push({ id, error: '無法變更已完成的狀態' });
+            continue;
+          }
+        }
+
+        const currentStatus = booking.status;
+        booking.status = status;
+
+        if (status === 'cancelled' && reason) {
+          const timestamp = now.toLocaleString('vi-VN');
+          const reasonNote = `\n[${timestamp}] Hủy đơn: ${reason}`;
+          booking.notes = booking.notes ? booking.notes + reasonNote : reasonNote;
+        }
+
+        if (status === 'checked-in') {
+          booking.actualCheckInTime = now;
+        } else if (status === 'checked-out') {
+          booking.actualCheckOutTime = now;
+        } else if (status === 'confirmed' || status === 'pending') {
+          if (currentStatus === 'checked-in') booking.actualCheckInTime = undefined;
+          if (currentStatus === 'checked-out') booking.actualCheckOutTime = undefined;
+        }
+
+        await booking.save();
+        results.success.push({ id, bookingNumber: booking.bookingNumber, status: booking.status });
+      } catch (err) {
+        results.failed.push({ id, error: err.message || '更新失敗' });
+      }
+    }
+
+    res.json({
+      message: `已更新 ${results.success.length}/${bookingIds.length} 筆預約`,
+      ...results
+    });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1017,18 +1086,18 @@ exports.updateBookingStatus = async (req, res) => {
 
     const validStatuses = ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+      return res.status(400).json({ message: '狀態無效' });
     }
 
     const booking = await Booking.findById(id);
     if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+      return res.status(404).json({ message: '找不到預約' });
     }
 
     // Prevent status changes for completed bookings
     if (booking.status === 'checked-out' || booking.status === 'cancelled') {
       return res.status(400).json({ 
-        message: 'Không thể thay đổi trạng thái của đặt chỗ đã hoàn thành hoặc đã hủy' 
+        message: '無法變更已完成或已取消的預約狀態' 
       });
     }
 
@@ -1046,7 +1115,7 @@ exports.updateBookingStatus = async (req, res) => {
     
     // if (!allowedTransitions.includes(status)) {
     //   return res.status(400).json({ 
-    //     message: `Không thể chuyển từ trạng thái "${currentStatus}" sang "${status}"` 
+    //     message: `無法從狀態「${currentStatus}」變更為「${status}」` 
     //   });
     // }
 
@@ -1075,7 +1144,7 @@ exports.updateBookingStatus = async (req, res) => {
     await booking.save();
 
     res.json({
-      message: 'Cập nhật trạng thái đặt chỗ thành công',
+      message: '預約狀態更新成功',
       booking: {
         _id: booking._id,
         status: booking.status,
@@ -1085,7 +1154,7 @@ exports.updateBookingStatus = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1110,7 +1179,7 @@ exports.updateBooking = async (req, res) => {
     if (updates.status) {
       const validStatuses = ['pending', 'confirmed', 'checked-in', 'checked-out', 'cancelled'];
       if (!validStatuses.includes(updates.status)) {
-        return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+        return res.status(400).json({ message: '狀態無效' });
       }
     }
     const booking = await Booking.findByIdAndUpdate(
@@ -1121,14 +1190,14 @@ exports.updateBooking = async (req, res) => {
       .populate('parkingType', 'name code type')
       .populate('user', 'name phone email');
     if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+      return res.status(404).json({ message: '找不到預約' });
     }
     res.json({
-      message: 'Cập nhật đặt chỗ thành công',
+      message: '預約更新成功',
       booking
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1140,12 +1209,12 @@ exports.deleteBooking = async (req, res) => {
 
     const booking = await Booking.findById(id);
     if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+      return res.status(404).json({ message: '找不到預約' });
     }
 
     // If already deleted, return error or success?
     if (booking.isDeleted) {
-      return res.status(400).json({ message: 'Đặt chỗ này đã bị xóa trước đó' });
+      return res.status(400).json({ message: '此預約先前已刪除' });
     }
 
     booking.isDeleted = true;
@@ -1176,7 +1245,7 @@ exports.deleteBooking = async (req, res) => {
     await booking.save();
 
     res.json({
-      message: 'Xóa đặt chỗ thành công',
+      message: '刪除預約成功',
       booking: {
         _id: booking._id,
         isDeleted: booking.isDeleted,
@@ -1185,7 +1254,7 @@ exports.deleteBooking = async (req, res) => {
     });
   } catch (error) {
     console.error('Delete booking error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1228,11 +1297,11 @@ exports.createManualBooking = async (req, res) => {
     // Check if parking type is available
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     if (!parkingType.isActive) {
-      return res.status(400).json({ message: 'Bãi đậu xe này hiện không hoạt động' });
+      return res.status(400).json({ message: '此停車場目前未營運' });
     }
 
     // Check availability: same per-Taiwan-day logic as bookingController.checkAvailability and Bookings.tsx calendar.
@@ -1271,7 +1340,7 @@ exports.createManualBooking = async (req, res) => {
     const requestedVehicles = Math.max(1, parseInt(vehicleCount) || 1);
 
     if (actualAvailableSpaces < requestedVehicles) {
-      return res.status(400).json({ message: 'Bãi đậu xe đã hết chỗ trong thời gian này' });
+      return res.status(400).json({ message: '此期間停車場已滿' });
     }
 
     // Find or create user
@@ -1422,12 +1491,12 @@ exports.createManualBooking = async (req, res) => {
     console.log('🔍 [adminController.createManualBooking] Final response:', JSON.stringify(responseBooking, null, 2));
 
     res.status(201).json({
-      message: 'Tạo đặt chỗ thủ công thành công',
+      message: '手動建立預約成功',
       booking: responseBooking
     });
   } catch (error) {
     console.error('🔍 [adminController.createManualBooking] Error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1447,7 +1516,7 @@ async function calculateBookingPrice({
 }) {
   const parkingType = await ParkingType.findById(parkingTypeId);
   if (!parkingType) {
-    throw new Error('Không tìm thấy loại bãi đậu xe');
+    throw new Error('找不到停車類型');
   }
 
   const checkIn = new Date(checkInTime);
@@ -1632,7 +1701,7 @@ exports.getAllParkingLots = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1658,7 +1727,7 @@ exports.createParkingLot = async (req, res) => {
     const existingLot = await ParkingLot.findOne({ name });
     if (existingLot) {
       return res.status(400).json({ 
-        message: 'Bãi đậu xe với tên này đã tồn tại' 
+        message: '此名稱的停車場已存在' 
       });
     }
 
@@ -1678,12 +1747,12 @@ exports.createParkingLot = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo bãi đậu xe thành công',
+      message: '建立停車場成功',
       parkingLot
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1699,7 +1768,7 @@ exports.updateParkingLot = async (req, res) => {
     const parkingLot = await ParkingLot.findById(id);
     if (!parkingLot) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy bãi đậu xe' 
+        message: '找不到停車場' 
       });
     }
 
@@ -1717,12 +1786,12 @@ exports.updateParkingLot = async (req, res) => {
     );
 
     res.json({
-      message: 'Cập nhật bãi đậu xe thành công',
+      message: '停車場更新成功',
       parkingLot: updatedLot
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1737,7 +1806,7 @@ exports.deleteParkingLot = async (req, res) => {
     const parkingLot = await ParkingLot.findById(id);
     if (!parkingLot) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy bãi đậu xe' 
+        message: '找不到停車場' 
       });
     }
 
@@ -1749,7 +1818,7 @@ exports.deleteParkingLot = async (req, res) => {
 
     if (activeBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa bãi đậu xe có đặt chỗ đang hoạt động' 
+        message: '無法刪除有進行中預約的停車場' 
       });
     }
 
@@ -1757,11 +1826,11 @@ exports.deleteParkingLot = async (req, res) => {
     await ParkingLot.findByIdAndDelete(id);
 
     res.json({ 
-      message: 'Xóa bãi đậu xe thành công' 
+      message: '刪除停車場成功' 
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1776,7 +1845,7 @@ exports.getAllParkingTypes = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1790,7 +1859,7 @@ exports.createParkingType = async (req, res) => {
     // Check if code already exists
     const existingType = await ParkingType.findOne({ code });
     if (existingType) {
-      return res.status(400).json({ message: 'Mã bãi đậu xe đã tồn tại' });
+      return res.status(400).json({ message: '停車場代碼已存在' });
     }
 
     const newType = await ParkingType.create({
@@ -1807,12 +1876,12 @@ exports.createParkingType = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo bãi đậu xe thành công',
+      message: '建立停車場成功',
       parkingType: newType
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1831,7 +1900,7 @@ exports.updateParkingType = async (req, res) => {
     }
     
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
     // If the current parking type doesn't have a code, don't require it in update
@@ -1871,12 +1940,12 @@ exports.updateParkingType = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Cập nhật bãi đậu xe thành công',
+      message: '停車場更新成功',
       parkingType: parkingType
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1889,23 +1958,23 @@ exports.deleteParkingType = async (req, res) => {
 
     const parkingType = await ParkingType.findOne({ code: type });
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車場' });
     }
 
     // Check if parking type is being used
     const usedBookings = await Booking.find({ parkingType: parkingType._id });
     if (usedBookings.length > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa bãi đậu xe đang được sử dụng' 
+        message: '無法刪除正在使用中的停車場' 
       });
     }
 
     await ParkingType.findByIdAndDelete(parkingType._id);
 
-    res.json({ message: 'Xóa bãi đậu xe thành công' });
+    res.json({ message: '刪除停車場成功' });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1940,7 +2009,7 @@ exports.getAllAddonServices = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1964,7 +2033,7 @@ exports.createAddonService = async (req, res) => {
     const existingService = await AddonService.findOne({ name });
     if (existingService) {
       return res.status(400).json({ 
-        message: 'Dịch vụ với tên này đã tồn tại' 
+        message: '此名稱的服務已存在' 
       });
     }
 
@@ -1981,12 +2050,12 @@ exports.createAddonService = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo dịch vụ thành công',
+      message: '建立服務成功',
       service
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2002,7 +2071,7 @@ exports.updateAddonService = async (req, res) => {
     const service = await AddonService.findById(id);
     if (!service) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy dịch vụ' 
+        message: '找不到服務' 
       });
     }
 
@@ -2014,12 +2083,12 @@ exports.updateAddonService = async (req, res) => {
     );
 
     res.json({
-      message: 'Cập nhật dịch vụ thành công',
+      message: '服務更新成功',
       service: updatedService
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2034,7 +2103,7 @@ exports.deleteAddonService = async (req, res) => {
     const service = await AddonService.findById(id);
     if (!service) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy dịch vụ' 
+        message: '找不到服務' 
       });
     }
 
@@ -2046,7 +2115,7 @@ exports.deleteAddonService = async (req, res) => {
 
     // if (usedBookings.length > 0) {
     //   return res.status(400).json({ 
-    //     message: 'Không thể xóa dịch vụ đang được sử dụng' 
+    //     message: '無法刪除使用中的服務' 
     //   });
     // }
 
@@ -2054,11 +2123,11 @@ exports.deleteAddonService = async (req, res) => {
     await AddonService.findByIdAndDelete(id);
 
     res.json({ 
-      message: 'Xóa dịch vụ thành công' 
+      message: '刪除服務成功' 
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2093,7 +2162,7 @@ exports.getAllDiscountCodes = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2120,7 +2189,7 @@ exports.createDiscountCode = async (req, res) => {
     const existingCode = await DiscountCode.findOne({ code: code.toUpperCase() });
     if (existingCode) {
       return res.status(400).json({ 
-        message: 'Mã giảm giá đã tồn tại' 
+        message: '折扣碼已存在' 
       });
     }
 
@@ -2141,12 +2210,12 @@ exports.createDiscountCode = async (req, res) => {
     });
 
     res.status(201).json({
-      message: 'Tạo mã giảm giá thành công',
+      message: '建立折扣碼成功',
       discountCode
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2162,7 +2231,7 @@ exports.updateDiscountCode = async (req, res) => {
     const discountCode = await DiscountCode.findById(id);
     if (!discountCode) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy mã giảm giá' 
+        message: '找不到折扣碼' 
       });
     }
 
@@ -2182,12 +2251,12 @@ exports.updateDiscountCode = async (req, res) => {
     );
 
     res.json({
-      message: 'Cập nhật mã giảm giá thành công',
+      message: '折扣碼更新成功',
       discountCode: updatedCode
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2202,14 +2271,14 @@ exports.deleteDiscountCode = async (req, res) => {
     const discountCode = await DiscountCode.findById(id);
     if (!discountCode) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy mã giảm giá' 
+        message: '找不到折扣碼' 
       });
     }
 
     // Check if code is being used
     if (discountCode.usedCount > 0) {
       return res.status(400).json({ 
-        message: 'Không thể xóa mã giảm giá đã được sử dụng' 
+        message: '無法刪除已使用的折扣碼' 
       });
     }
 
@@ -2217,11 +2286,11 @@ exports.deleteDiscountCode = async (req, res) => {
     await DiscountCode.findByIdAndDelete(id);
 
     res.json({ 
-      message: 'Xóa mã giảm giá thành công' 
+      message: '刪除折扣碼成功' 
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2246,7 +2315,7 @@ exports.getAllTerms = async (req, res) => {
     res.json({ terms: termsObject });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2273,7 +2342,7 @@ exports.updateTermsSection = async (req, res) => {
     );
     
     res.json({
-      message: 'Cập nhật điều khoản thành công',
+      message: '條款更新成功',
       terms: {
         content: terms.content,
         isActive: terms.isActive
@@ -2281,7 +2350,7 @@ exports.updateTermsSection = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2313,11 +2382,11 @@ exports.saveAllTerms = async (req, res) => {
     await Promise.all(updates);
     
     res.json({
-      message: 'Lưu tất cả điều khoản thành công'
+      message: '儲存所有條款成功'
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2361,7 +2430,7 @@ exports.getAllNotificationTemplates = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2384,7 +2453,7 @@ exports.createNotificationTemplate = async (req, res) => {
     const existingTemplate = await NotificationTemplate.findOne({ name });
     if (existingTemplate) {
       return res.status(400).json({ 
-        message: 'Mẫu thông báo với tên này đã tồn tại' 
+        message: '此名稱的通知範本已存在' 
       });
     }
     
@@ -2405,12 +2474,12 @@ exports.createNotificationTemplate = async (req, res) => {
     });
     
     res.status(201).json({
-      message: 'Tạo mẫu thông báo thành công',
+      message: '建立通知範本成功',
       template
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2434,7 +2503,7 @@ exports.updateNotificationTemplate = async (req, res) => {
     const existingTemplate = await NotificationTemplate.findById(id);
     if (!existingTemplate) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy mẫu thông báo' 
+        message: '找不到通知範本' 
       });
     }
     
@@ -2443,7 +2512,7 @@ exports.updateNotificationTemplate = async (req, res) => {
       const nameConflict = await NotificationTemplate.findOne({ name, _id: { $ne: id } });
       if (nameConflict) {
         return res.status(400).json({ 
-          message: 'Mẫu thông báo với tên này đã tồn tại' 
+          message: '此名稱的通知範本已存在' 
         });
       }
     }
@@ -2468,12 +2537,12 @@ exports.updateNotificationTemplate = async (req, res) => {
     );
     
     res.json({
-      message: 'Cập nhật mẫu thông báo thành công',
+      message: '通知範本更新成功',
       template
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2488,7 +2557,7 @@ exports.deleteNotificationTemplate = async (req, res) => {
     const template = await NotificationTemplate.findById(id);
     if (!template) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy mẫu thông báo' 
+        message: '找不到通知範本' 
       });
     }
     
@@ -2496,18 +2565,18 @@ exports.deleteNotificationTemplate = async (req, res) => {
     // const isUsed = await checkTemplateUsage(id);
     // if (isUsed) {
     //   return res.status(400).json({ 
-    //     message: 'Không thể xóa mẫu thông báo đang được sử dụng' 
+    //     message: '無法刪除使用中的通知範本' 
     //   });
     // }
     
     await NotificationTemplate.findByIdAndDelete(id);
     
     res.json({
-      message: 'Xóa mẫu thông báo thành công'
+      message: '刪除通知範本成功'
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2520,7 +2589,7 @@ exports.testNotification = async (req, res) => {
     
     if (!templateName || !type || !recipient) {
       return res.status(400).json({ 
-        message: 'Thiếu thông tin bắt buộc' 
+        message: '缺少必要資訊' 
       });
     }
 
@@ -2529,18 +2598,18 @@ exports.testNotification = async (req, res) => {
     
     if (result.success) {
       res.json({
-        message: 'Gửi thông báo thành công',
+        message: '通知發送成功',
         result
       });
     } else {
       res.status(400).json({
-        message: 'Không thể gửi thông báo',
+        message: '無法發送通知',
         error: result.error
       });
     }
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2553,7 +2622,7 @@ exports.sendBulkNotification = async (req, res) => {
     
     if (!templateName || !type || !recipients || !Array.isArray(recipients)) {
       return res.status(400).json({ 
-        message: 'Thiếu thông tin bắt buộc' 
+        message: '缺少必要資訊' 
       });
     }
 
@@ -2569,12 +2638,12 @@ exports.sendBulkNotification = async (req, res) => {
     const failureCount = results.length - successCount;
 
     res.json({
-      message: `Gửi thông báo hoàn tất: ${successCount} thành công, ${failureCount} thất bại`,
+      message: `通知發送完成：${successCount} 成功，${failureCount} 失敗`,
       results
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2606,7 +2675,7 @@ exports.getNotificationStats = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -2619,7 +2688,7 @@ exports.addSpecialPrice = async (req, res) => {
     const { startDate, endDate, price, reason, isActive, forceOverride = false } = req.body;
     
     if (!startDate || !endDate || !price || !reason || !reason.trim()) {
-      return res.status(400).json({ message: 'Thiếu thông tin bắt buộc. Vui lòng nhập đầy đủ ngày, giá và lý do' });
+      return res.status(400).json({ message: '缺少必要資訊，請輸入完整的日期、價格與原因' });
     }
 
     // Validate date format and logic
@@ -2627,26 +2696,26 @@ exports.addSpecialPrice = async (req, res) => {
     const end = new Date(endDate);
     
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-      return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+      return res.status(400).json({ message: '日期格式無效' });
     }
     
     if (start > end) {
-      return res.status(400).json({ message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu' });
+      return res.status(400).json({ message: '結束日期必須在開始日期之後或當天' });
     }
     
     if (start < new Date()) {
-      return res.status(400).json({ message: 'Ngày bắt đầu không thể trong quá khứ' });
+      return res.status(400).json({ message: '開始日期不能是過去日期' });
     }
 
     // Validate price
     const priceValue = parseFloat(price);
     if (isNaN(priceValue) || priceValue <= 0) {
-      return res.status(400).json({ message: 'Giá phải là số dương' });
+      return res.status(400).json({ message: '價格必須為正數' });
     }
 
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     // Check if special price already exists for overlapping date range
@@ -2669,7 +2738,7 @@ exports.addSpecialPrice = async (req, res) => {
         await parkingType.save();
         
         return res.json({
-          message: 'Cập nhật giá đặc biệt thành công',
+          message: '特殊價格更新成功',
           specialPrice: existingSpecialPrice
         });
       } else if (forceOverride) {
@@ -2690,12 +2759,12 @@ exports.addSpecialPrice = async (req, res) => {
         await parkingType.save();
         
         return res.json({
-          message: 'Thêm giá đặc biệt thành công (đã ghi đè)',
+          message: '新增特殊價格成功（已覆寫）',
           specialPrice: parkingType.specialPrices[parkingType.specialPrices.length - 1]
         });
       } else {
         return res.status(400).json({ 
-          message: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
+          message: '此期間已存在特殊價格',
           existingSpecialPrice: {
             startDate: existingSpecialPrice.startDate,
             endDate: existingSpecialPrice.endDate,
@@ -2717,11 +2786,11 @@ exports.addSpecialPrice = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Thêm giá đặc biệt thành công',
+      message: '新增特殊價格成功',
       specialPrice: parkingType.specialPrices[parkingType.specialPrices.length - 1]
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -2732,12 +2801,12 @@ exports.addBulkSpecialPrices = async (req, res) => {
     const { specialPrices, forceOverride = false } = req.body;
     
     if (!Array.isArray(specialPrices) || specialPrices.length === 0) {
-      return res.status(400).json({ message: 'Danh sách giá đặc biệt không hợp lệ' });
+      return res.status(400).json({ message: '特殊價格清單無效' });
     }
 
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     const results = {
@@ -2754,7 +2823,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
         if (!startDate || !endDate || !price || !reason || !reason.trim()) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Thiếu thông tin bắt buộc. Vui lòng nhập đầy đủ ngày, giá và lý do'
+            error: '缺少必要資訊，請輸入完整的日期、價格與原因'
           });
           continue;
         }
@@ -2766,7 +2835,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Định dạng ngày không hợp lệ'
+            error: '日期格式無效'
           });
           continue;
         }
@@ -2774,7 +2843,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
         if (start > end) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu'
+            error: '結束日期必須在開始日期之後或當天'
           });
           continue;
         }
@@ -2782,7 +2851,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
         if (start < new Date()) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Ngày bắt đầu không thể trong quá khứ'
+            error: '開始日期不能是過去日期'
           });
           continue;
         }
@@ -2792,7 +2861,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
         if (isNaN(priceValue) || priceValue <= 0) {
           results.failed.push({
             ...specialPriceData,
-            error: 'Giá phải là số dương'
+            error: '價格必須為正數'
           });
           continue;
         }
@@ -2853,7 +2922,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
             // If partial overlap, skip with detailed message
             results.skipped.push({
               ...specialPriceData,
-              error: 'Giá đặc biệt đã tồn tại cho khoảng thời gian này',
+              error: '此期間已存在特殊價格',
               existingSpecialPrice: {
                 startDate: existingSpecialPrice.startDate,
                 endDate: existingSpecialPrice.endDate,
@@ -2890,7 +2959,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
     }
 
     res.json({
-      message: `Xử lý ${specialPrices.length} giá đặc biệt hoàn tất`,
+      message: `已處理 ${specialPrices.length} 筆特殊價格`,
       results: {
         total: specialPrices.length,
         success: results.success.length,
@@ -2900,7 +2969,7 @@ exports.addBulkSpecialPrices = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -2912,12 +2981,12 @@ exports.updateSpecialPrice = async (req, res) => {
     
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     const specialPrice = parkingType.specialPrices.id(specialPriceId);
     if (!specialPrice) {
-      return res.status(404).json({ message: 'Không tìm thấy giá đặc biệt' });
+      return res.status(404).json({ message: '找不到特殊價格' });
     }
 
     // Validate dates if both are provided
@@ -2926,11 +2995,11 @@ exports.updateSpecialPrice = async (req, res) => {
       const end = new Date(endDate);
       
       if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-        return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+        return res.status(400).json({ message: '日期格式無效' });
       }
       
       if (start > end) {
-        return res.status(400).json({ message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu' });
+        return res.status(400).json({ message: '結束日期必須在開始日期之後或當天' });
       }
     }
     
@@ -2939,7 +3008,7 @@ exports.updateSpecialPrice = async (req, res) => {
     if (price !== undefined) specialPrice.price = parseFloat(price);
     if (reason !== undefined) {
       if (!reason || !reason.trim()) {
-        return res.status(400).json({ message: 'Lý do không được để trống' });
+        return res.status(400).json({ message: '原因不可為空' });
       }
       specialPrice.reason = reason.trim();
     }
@@ -2948,11 +3017,11 @@ exports.updateSpecialPrice = async (req, res) => {
     await parkingType.save();
 
     res.json({
-      message: 'Cập nhật giá đặc biệt thành công',
+      message: '特殊價格更新成功',
       specialPrice
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -2963,7 +3032,7 @@ exports.deleteSpecialPrice = async (req, res) => {
     
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     parkingType.specialPrices = parkingType.specialPrices.filter(
@@ -2972,9 +3041,9 @@ exports.deleteSpecialPrice = async (req, res) => {
 
     await parkingType.save();
 
-    res.json({ message: 'Xóa giá đặc biệt thành công' });
+    res.json({ message: '刪除特殊價格成功' });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -2985,14 +3054,14 @@ exports.getSpecialPrices = async (req, res) => {
     
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     res.json({
       specialPrices: parkingType.specialPrices.sort((a, b) => a.startDate - b.startDate)
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 

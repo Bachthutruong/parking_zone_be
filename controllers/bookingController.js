@@ -29,7 +29,7 @@ exports.getBookingTerms = async (req, res) => {
     // Check MongoDB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({ 
-        message: 'MongoDB chưa kết nối. Vui lòng kiểm tra kết nối database.' 
+        message: 'MongoDB 未連線，請檢查資料庫連線' 
       });
     }
     
@@ -42,7 +42,7 @@ exports.getBookingTerms = async (req, res) => {
   } catch (error) {
     console.error('Error getting booking terms:', error);
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: process.env.NODE_ENV === 'development' ? error.message : undefined 
     });
   }
@@ -54,18 +54,18 @@ exports.checkAvailability = async (req, res) => {
     const { parkingTypeId, checkInTime, checkOutTime, excludeBookingId } = req.body;
     
     if (!parkingTypeId || !checkInTime || !checkOutTime) {
-      return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
+      return res.status(400).json({ message: '缺少必要資訊' });
     }
 
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     if (!parkingType.isActive) {
       return res.json({
         success: false,
-        message: 'Loại bãi đậu xe này hiện không hoạt động',
+        message: '此停車場目前未營運',
         availableSlots: [],
         pricing: null
       });
@@ -78,7 +78,7 @@ exports.checkAvailability = async (req, res) => {
     if (checkOut <= checkIn) {
       return res.status(400).json({ 
         success: false,
-        message: 'Thời gian rời bãi phải sau thời gian vào bãi' 
+        message: '離開時間必須在進入時間之後' 
       });
     }
 
@@ -87,7 +87,7 @@ exports.checkAvailability = async (req, res) => {
     if (!excludeBookingId && checkIn < now) {
       return res.status(400).json({ 
         success: false,
-        message: 'Thời gian vào bãi không thể trong quá khứ' 
+        message: '進入時間不能是過去時間' 
       });
     }
 
@@ -100,7 +100,7 @@ exports.checkAvailability = async (req, res) => {
     if (affectingMaintenanceDays.length > 0) {
       return res.json({
         success: false,
-        message: 'Bãi đậu xe này đang bảo trì trong thời gian đã chọn',
+        message: '此期間停車場正在維護',
         maintenanceDays: affectingMaintenanceDays.map(md => ({
           date: md.date,
           reason: md.reason,
@@ -181,7 +181,7 @@ exports.checkAvailability = async (req, res) => {
     if (!isAvailable) {
       const payload = {
         success: false,
-        message: 'Bãi đậu xe đã hết chỗ trong thời gian này',
+        message: '此期間停車場已滿',
         availableSlots: [],
         pricing: null,
         details: {
@@ -226,7 +226,7 @@ exports.checkAvailability = async (req, res) => {
     res.json(payload);
   } catch (error) {
     console.error('Error checking availability:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -236,7 +236,7 @@ exports.getAvailableParkingTypes = async (req, res) => {
     const { type, checkInTime, checkOutTime } = req.query;
     
     if (!type || !checkInTime || !checkOutTime) {
-      return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
+      return res.status(400).json({ message: '缺少必要資訊' });
     }
 
     const checkIn = new Date(checkInTime);
@@ -315,7 +315,7 @@ exports.getAvailableParkingTypes = async (req, res) => {
 
     res.json({ parkingTypes: availableTypes });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -335,12 +335,12 @@ exports.calculatePrice = async (req, res) => {
     } = req.body;
 
     if (!parkingTypeId || !checkInTime || !checkOutTime) {
-      return res.status(400).json({ message: 'Thiếu thông tin cần thiết' });
+      return res.status(400).json({ message: '缺少必要資訊' });
     }
 
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     // Calculate pricing using new day-based logic
@@ -500,7 +500,7 @@ exports.calculatePrice = async (req, res) => {
       discountCodeInfo
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -593,7 +593,7 @@ exports.createBooking = async (req, res) => {
     
     if (daysDiff < minBookingDays) {
       return res.status(400).json({ 
-        message: `最少需要預約 ${minBookingDays} 天，您選擇了 ${daysDiff} 天` 
+        message: `最少需預約 ${minBookingDays} 天，您選擇了 ${daysDiff} 天` 
       });
     }
     
@@ -604,7 +604,7 @@ exports.createBooking = async (req, res) => {
     
     if (affectingMaintenanceDays.length > 0) {
       return res.status(400).json({ 
-        message: 'Bãi đậu xe này đang bảo trì trong thời gian đã chọn',
+        message: '此期間停車場正在維護',
         maintenanceDays: affectingMaintenanceDays.map(md => ({
           date: md.date,
           reason: md.reason,
@@ -724,14 +724,14 @@ exports.createBooking = async (req, res) => {
       .populate('user', 'name email phone');
 
     res.status(201).json({
-      message: 'Đặt chỗ thành công',
+      message: '預約成功',
       booking: {
         ...populatedBooking.toObject(),
         bookingNumber: populatedBooking.bookingNumber
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -774,7 +774,7 @@ exports.createManualBooking = async (req, res) => {
     // Check if parking type is available
     const parkingType = await ParkingType.findById(parkingTypeId);
     if (!parkingType) {
-      return res.status(404).json({ message: 'Không tìm thấy loại bãi đậu xe' });
+      return res.status(404).json({ message: '找不到停車類型' });
     }
 
     if (!parkingType.isActive) {
@@ -793,7 +793,7 @@ exports.createManualBooking = async (req, res) => {
     
     if (affectingMaintenanceDays.length > 0) {
       return res.status(400).json({ 
-        message: 'Bãi đậu xe này đang bảo trì trong thời gian đã chọn',
+        message: '此期間停車場正在維護',
         maintenanceDays: affectingMaintenanceDays.map(md => ({
           date: md.date,
           reason: md.reason,
@@ -1004,12 +1004,12 @@ exports.createManualBooking = async (req, res) => {
     console.log('🔍 [createManualBooking] Final Response Payload:', JSON.stringify(responseBooking, null, 2));
 
     res.status(201).json({
-      message: 'Tạo đặt chỗ thủ công thành công',
+      message: '手動建立預約成功',
       booking: responseBooking
     });
   } catch (error) {
     console.error('🔍 [createManualBooking] Error:', error);
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1023,13 +1023,13 @@ exports.cancelBooking = async (req, res) => {
     
     if (!booking) {
       return res.status(404).json({ 
-        message: 'Không tìm thấy đặt chỗ' 
+        message: '找不到預約' 
       });
     }
 
     if (booking.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ 
-        message: 'Không có quyền hủy đặt chỗ này' 
+        message: '無權取消此預約' 
       });
     }
 
@@ -1039,7 +1039,7 @@ exports.cancelBooking = async (req, res) => {
     // Update booking status
     booking.status = 'cancelled';
     booking.cancelledAt = new Date();
-    booking.cancelReason = reason || 'Hủy bởi khách hàng';
+    booking.cancelReason = reason || '由客戶取消';
     await booking.save();
 
     // Send cancellation notification
@@ -1051,13 +1051,13 @@ exports.cancelBooking = async (req, res) => {
     }
 
     res.json({
-      message: 'Hủy đặt chỗ thành công',
+      message: '取消預約成功',
       refundAmount,
       booking
     });
   } catch (error) {
     res.status(500).json({ 
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }
@@ -1069,7 +1069,7 @@ exports.getBookingBySearch = async (req, res) => {
     const { phone, licensePlate } = req.query;
 
     if (!phone && !licensePlate) {
-      return res.status(400).json({ message: 'Vui lòng nhập số điện thoại hoặc biển số xe' });
+      return res.status(400).json({ message: '請輸入電話號碼或車牌號碼' });
     }
 
     const query = {};
@@ -1090,7 +1090,7 @@ exports.getBookingBySearch = async (req, res) => {
 
     res.json({ bookings: bookingsWithNumber });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1105,7 +1105,7 @@ exports.getBookingDetails = async (req, res) => {
       .populate('user', 'name email phone isVIP');
 
     if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+      return res.status(404).json({ message: '找不到預約' });
     }
 
     res.json({ 
@@ -1115,7 +1115,7 @@ exports.getBookingDetails = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1127,7 +1127,7 @@ exports.updateBookingStatus = async (req, res) => {
 
     const booking = await Booking.findById(id);
     if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt chỗ' });
+      return res.status(404).json({ message: '找不到預約' });
     }
 
     // Update status and timestamps
@@ -1149,14 +1149,14 @@ exports.updateBookingStatus = async (req, res) => {
     ).populate('parkingType', 'name type');
 
     res.json({
-      message: 'Cập nhật trạng thái thành công',
+      message: '狀態更新成功',
       booking: {
         ...updatedBooking.toObject(),
         bookingNumber: updatedBooking.bookingNumber
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1176,7 +1176,7 @@ async function calculateBookingPrice({
 }) {
   const parkingType = await ParkingType.findById(parkingTypeId);
   if (!parkingType) {
-    throw new Error('Không tìm thấy loại bãi đậu xe');
+    throw new Error('找不到停車類型');
   }
 
   const checkIn = new Date(checkInTime);
@@ -1416,7 +1416,7 @@ exports.getTodayBookings = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server', error: error.message });
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
 
@@ -1428,7 +1428,7 @@ exports.applyDiscount = async (req, res) => {
     if (!discountCode || !parkingTypeId || !checkInTime || !checkOutTime) {
       return res.status(400).json({ 
         success: false,
-        message: 'Thiếu thông tin cần thiết' 
+        message: '缺少必要資訊' 
       });
     }
 
@@ -1443,7 +1443,7 @@ exports.applyDiscount = async (req, res) => {
     if (!code) {
       return res.json({
         success: false,
-        message: 'Mã giảm giá không hợp lệ hoặc đã hết hạn'
+        message: '折扣碼無效或已過期'
       });
     }
 
@@ -1451,7 +1451,7 @@ exports.applyDiscount = async (req, res) => {
     if (code.maxUsage && code.usageCount >= code.maxUsage) {
       return res.json({
         success: false,
-        message: 'Mã giảm giá đã hết lượt sử dụng'
+        message: '折扣碼已達使用上限'
       });
     }
 
@@ -1472,13 +1472,13 @@ exports.applyDiscount = async (req, res) => {
     if (pricing.discountAmount <= 0) {
       return res.json({
         success: false,
-        message: 'Mã giảm giá không áp dụng được cho đơn hàng này'
+        message: '此折扣碼無法適用於本訂單'
       });
     }
 
     res.json({
       success: true,
-      message: 'Áp dụng mã giảm giá thành công',
+      message: '折扣碼已成功套用',
       discountInfo: {
         code: code.code,
         discountAmount: pricing.discountAmount,
@@ -1495,7 +1495,7 @@ exports.applyDiscount = async (req, res) => {
     console.error('Error applying discount:', error);
     res.status(500).json({ 
       success: false,
-      message: 'Lỗi server', 
+      message: '伺服器錯誤', 
       error: error.message 
     });
   }

@@ -20,13 +20,13 @@ router.use((req, res, next) => {
 
 // Public test routes (no auth required)
 router.get('/test-public', (req, res) => {
-  res.json({ message: 'Public admin route is working' });
+  res.json({ message: '管理員公開路由正常運作' });
 });
 
 // CORS test route
 router.patch('/test-cors', (req, res) => {
   res.json({ 
-    message: 'CORS test successful',
+    message: 'CORS 測試成功',
     method: req.method,
     headers: req.headers,
     body: req.body
@@ -58,7 +58,7 @@ router.patch('/users/:id/vip', (req, res, next) => {
 // Health check route for debugging
 router.get('/health', (req, res) => {
   res.json({ 
-    message: 'Admin routes are working',
+    message: '管理員路由正常運作',
     user: req.user ? { id: req.user._id, role: req.user.role } : null,
     timestamp: new Date().toISOString()
   });
@@ -66,7 +66,7 @@ router.get('/health', (req, res) => {
 
 // Test route for debugging
 router.get('/test', (req, res) => {
-  res.json({ message: 'Admin route is working' });
+  res.json({ message: '管理員路由正常運作' });
 });
 
 // Dashboard
@@ -76,6 +76,7 @@ router.get('/bookings/stats/:period', adminController.getBookingStats);
 // Bookings management
 router.get('/bookings', adminController.getAllBookings);
 router.get('/bookings/calendar', adminController.getCalendarBookings);
+router.patch('/bookings/bulk-status', adminController.updateBulkBookingStatus);
 router.patch('/bookings/:id/status', adminController.updateBookingStatus);
 router.put('/bookings/:id', adminController.updateBooking);
 router.delete('/bookings/:id', adminController.deleteBooking);

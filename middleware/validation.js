@@ -5,7 +5,7 @@ const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
-      message: 'Dữ liệu không hợp lệ',
+      message: '資料格式無效',
       errors: errors.array().map(error => ({
         field: error.path,
         message: error.msg
