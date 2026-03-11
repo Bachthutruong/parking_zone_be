@@ -1163,7 +1163,11 @@ exports.updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const mongoose = require('mongoose');
-    const allowed = ['driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime', 'status', 'notes', 'parkingType'];
+    const allowed = [
+      'driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime',
+      'status', 'notes', 'parkingType',
+      'vehicleCount', 'totalAmount', 'discountAmount', 'finalAmount'
+    ];
     const updates = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
@@ -1171,6 +1175,15 @@ exports.updateBooking = async (req, res) => {
           updates[key] = new Date(req.body[key]);
         } else if (key === 'parkingType' && req.body[key]) {
           updates[key] = mongoose.Types.ObjectId.isValid(req.body[key]) ? new mongoose.Types.ObjectId(req.body[key]) : req.body[key];
+        } else if (['vehicleCount', 'totalAmount', 'discountAmount', 'finalAmount'].includes(key)) {
+          const num = Number(req.body[key]);
+          if (key === 'vehicleCount' && (isNaN(num) || num < 1)) {
+            return res.status(400).json({ message: '車輛數量必須至少為 1' });
+          }
+          if (['totalAmount', 'discountAmount', 'finalAmount'].includes(key) && (isNaN(num) || num < 0)) {
+            return res.status(400).json({ message: `無效的 ${key} 數值` });
+          }
+          updates[key] = num;
         } else {
           updates[key] = req.body[key];
         }
@@ -1182,6 +1195,31 @@ exports.updateBooking = async (req, res) => {
         return res.status(400).json({ message: '狀態無效' });
       }
     }
+
+    const existingBooking = await Booking.findById(id);
+    if (!existingBooking) {
+      return res.status(404).json({ message: '找不到預約' });
+    }
+
+    // Update availableSpaces when vehicleCount or parkingType changes (only for active bookings)
+    const isActiveStatus = ['pending', 'confirmed', 'checked-in'].includes(existingBooking.status);
+    const oldCount = existingBooking.vehicleCount ?? 1;
+    const newCount = updates.vehicleCount !== undefined ? updates.vehicleCount : oldCount;
+    const oldParkingTypeId = existingBooking.parkingType?.toString?.() || existingBooking.parkingType;
+    const newParkingTypeId = updates.parkingType?.toString?.() || updates.parkingType || oldParkingTypeId;
+    const parkingTypeChanged = newParkingTypeId && oldParkingTypeId && newParkingTypeId !== oldParkingTypeId;
+
+    if (isActiveStatus) {
+      if (parkingTypeChanged) {
+        // Release from old parking type, reserve on new
+        await ParkingType.findByIdAndUpdate(oldParkingTypeId, { $inc: { availableSpaces: oldCount } });
+        await ParkingType.findByIdAndUpdate(newParkingTypeId, { $inc: { availableSpaces: -newCount } });
+      } else if (newCount !== oldCount && newParkingTypeId) {
+        const diff = newCount - oldCount;
+        await ParkingType.findByIdAndUpdate(newParkingTypeId, { $inc: { availableSpaces: -diff } });
+      }
+    }
+
     const booking = await Booking.findByIdAndUpdate(
       id,
       { $set: updates },
