@@ -144,4 +144,11 @@ router.put('/parking-types/:parkingTypeId/special-prices/:specialPriceId', admin
 router.delete('/parking-types/:parkingTypeId/special-prices/:specialPriceId', adminController.deleteSpecialPrice);
 router.get('/parking-types/:parkingTypeId/special-prices', adminController.getSpecialPrices);
 
+// ===== BLACKLIST ROUTES =====
+router.get('/blacklist', adminController.getAllBlacklist);
+router.post('/blacklist', adminController.createBlacklist);
+router.put('/blacklist/:id', adminController.updateBlacklist);
+router.delete('/blacklist/:id', adminController.deleteBlacklist);
+router.post('/blacklist/check', adminController.checkBlacklist);
+
 module.exports = router; 

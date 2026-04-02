@@ -1370,7 +1370,7 @@ exports.getTodayBookings = async (req, res) => {
         $gte: startOfDay,
         $lt: endOfDay
       },
-      status: { $in: ['confirmed', 'checked-in'] }
+      status: { $in: ['confirmed', 'checked-in', 'pending'] } // add pending for safety
     })
     .populate('parkingType', 'name code')
     .populate('user', 'name phone')
@@ -1388,7 +1388,7 @@ exports.getTodayBookings = async (req, res) => {
     .populate('user', 'name phone')
     .sort({ checkOutTime: 1 });
 
-    // Get overdue bookings
+    // Get overdue bookings (overdue to leave)
     const overdueBookings = await Booking.find({
       checkOutTime: { $lt: today },
       status: 'checked-in'
@@ -1396,6 +1396,15 @@ exports.getTodayBookings = async (req, res) => {
     .populate('parkingType', 'name code')
     .populate('user', 'name phone')
     .sort({ checkOutTime: 1 });
+
+    // Get expected not entered (overdue to arrive)
+    const expectedNotEnteredBookings = await Booking.find({
+      checkInTime: { $lt: today },
+      status: { $in: ['pending', 'confirmed'] }
+    })
+    .populate('parkingType', 'name code')
+    .populate('user', 'name phone')
+    .sort({ checkInTime: 1 });
 
     // Add bookingNumber to all bookings
     const addBookingNumber = (bookings) => {
@@ -1409,10 +1418,12 @@ exports.getTodayBookings = async (req, res) => {
       checkInsToday: addBookingNumber(checkInsToday),
       checkOutsToday: addBookingNumber(checkOutsToday),
       overdueBookings: addBookingNumber(overdueBookings),
+      expectedNotEnteredBookings: addBookingNumber(expectedNotEnteredBookings),
       summary: {
         totalCheckIns: checkInsToday.length,
         totalCheckOuts: checkOutsToday.length,
-        totalOverdue: overdueBookings.length
+        totalOverdue: overdueBookings.length,
+        totalExpectedNotEntered: expectedNotEnteredBookings.length
       }
     });
   } catch (error) {

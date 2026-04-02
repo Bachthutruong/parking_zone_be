@@ -3102,5 +3102,103 @@ exports.getSpecialPrices = async (req, res) => {
     res.status(500).json({ message: '伺服器錯誤', error: error.message });
   }
 };
+// Blacklist Management
+const Blacklist = require('../models/Blacklist');
+
+exports.getAllBlacklist = async (req, res) => {
+  try {
+    const blacklist = await Blacklist.find({}).sort({ createdAt: -1 });
+    res.json({ blacklist });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+exports.createBlacklist = async (req, res) => {
+  try {
+    const { phone, licensePlate, reason } = req.body;
+    
+    if (!phone && !licensePlate) {
+      return res.status(400).json({ message: '必須提供電話或車牌號碼' });
+    }
+
+    const newBlacklist = await Blacklist.create({
+      phone,
+      licensePlate,
+      reason
+    });
+
+    res.status(201).json({
+      message: '已加入黑名單',
+      blacklist: newBlacklist
+    });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+exports.deleteBlacklist = async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Blacklist.findByIdAndDelete(id);
+    res.json({ message: '已從黑名單移除' });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+exports.updateBlacklist = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { phone, licensePlate, reason, isActive } = req.body;
+    
+    if (!phone && !licensePlate) {
+      return res.status(400).json({ message: '必須提供電話或車牌號碼' });
+    }
+
+    const updated = await Blacklist.findByIdAndUpdate(
+      id,
+      { phone, licensePlate, reason, isActive },
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: '找不到黑名單記錄' });
+    }
+
+    res.json({
+      message: '黑名單更新成功',
+      blacklist: updated
+    });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+exports.checkBlacklist = async (req, res) => {
+  try {
+    const { phone, licensePlate } = req.body;
+    
+    let query = { isActive: true };
+    if (phone && licensePlate) {
+      query.$or = [{ phone: phone.trim() }, { licensePlate: licensePlate.trim().toUpperCase() }];
+    } else if (phone) {
+      query.phone = phone.trim();
+    } else if (licensePlate) {
+      query.licensePlate = licensePlate.trim().toUpperCase();
+    } else {
+      return res.json({ isBlacklisted: false });
+    }
+
+    const blocked = await Blacklist.findOne(query);
+
+    res.json({
+      isBlacklisted: !!blocked,
+      reason: blocked ? blocked.reason : null
+    });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
 
 module.exports = exports; 

@@ -9,10 +9,21 @@ exports.getAllMaintenanceDays = async (req, res) => {
     let query = {};
     
     if (startDate && endDate) {
-      query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      let start = new Date(startDate);
+      let end = new Date(endDate);
+      
+      // Some clients/browsers replace + with space in query params for timezone offset
+      if (isNaN(start.getTime()) && typeof startDate === 'string') start = new Date(startDate.replace(' ', '+'));
+      if (isNaN(end.getTime()) && typeof endDate === 'string') end = new Date(endDate.replace(' ', '+'));
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        query.date = {
+          $gte: start,
+          $lte: end
+        };
+      } else {
+        return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+      }
     }
     
     const maintenanceDays = await MaintenanceDay.find(query)
@@ -146,9 +157,20 @@ exports.checkMaintenanceDays = async (req, res) => {
       return res.status(400).json({ message: 'Vui lòng cung cấp ngày bắt đầu và kết thúc' });
     }
     
+    let start = new Date(startDate);
+    let end = new Date(endDate);
+    
+    // Some clients/browsers replace + with space in query params for timezone offset
+    if (isNaN(start.getTime()) && typeof startDate === 'string') start = new Date(startDate.replace(' ', '+'));
+    if (isNaN(end.getTime()) && typeof endDate === 'string') end = new Date(endDate.replace(' ', '+'));
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: 'Định dạng ngày không hợp lệ' });
+    }
+    
     const maintenanceDays = await MaintenanceDay.getMaintenanceDaysForRange(
-      new Date(startDate),
-      new Date(endDate)
+      start,
+      end
     );
     
     res.json({ maintenanceDays });
