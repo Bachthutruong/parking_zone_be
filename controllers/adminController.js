@@ -669,31 +669,35 @@ exports.updateUserVIP = async (req, res) => {
     }
 
     // Prepare update data
-    const updateData = { isVIP };
+    const updateQuery = { $set: { isVIP }, $unset: {} };
     
     // Only include vipDiscount if it's provided and user is VIP
     if (isVIP && vipDiscount !== undefined) {
-      updateData.vipDiscount = vipDiscount;
+      updateQuery.$set.vipDiscount = vipDiscount;
     } else if (!isVIP) {
       // Reset vipDiscount to 0 when removing VIP status
-      updateData.vipDiscount = 0;
+      updateQuery.$set.vipDiscount = 0;
     }
 
     // Generate VIP code if becoming VIP and doesn't have one
     if (isVIP && !user.vipCode) {
-      updateData.vipCode = user.generateVIPCode();
-      updateData.vipCreatedAt = new Date();
+      updateQuery.$set.vipCode = user.generateVIPCode();
+      updateQuery.$set.vipCreatedAt = new Date();
     } else if (!isVIP) {
       // Remove VIP code when removing VIP status
-      updateData.vipCode = null;
-      updateData.vipCreatedAt = null;
+      updateQuery.$unset.vipCode = 1;
+      updateQuery.$unset.vipCreatedAt = 1;
+    }
+    
+    if (Object.keys(updateQuery.$unset).length === 0) {
+      delete updateQuery.$unset;
     }
 
-    console.log('🔍 Update Data:', updateData);
+    console.log('🔍 Update Data:', updateQuery);
 
     const updatedUser = await User.findByIdAndUpdate(
       id,
-      updateData,
+      updateQuery,
       { new: true, runValidators: true }
     ).select('-password');
 
@@ -725,10 +729,6 @@ exports.updateUser = async (req, res) => {
     if (updateData.isVIP && !existingUser.vipCode) {
       updateData.vipCode = existingUser.generateVIPCode();
       updateData.vipCreatedAt = new Date();
-    } else if (updateData.isVIP === false) {
-      // Remove VIP code when removing VIP status
-      updateData.vipCode = null;
-      updateData.vipCreatedAt = null;
     }
 
     // Update user fields
@@ -737,6 +737,12 @@ exports.updateUser = async (req, res) => {
         existingUser[key] = updateData[key];
       }
     });
+
+    if (updateData.isVIP === false) {
+      // Remove VIP code when removing VIP status
+      existingUser.vipCode = undefined;
+      existingUser.vipCreatedAt = undefined;
+    }
 
     // Ensure password is marked as modified if it's being updated
     if (updateData.password) {
@@ -3195,6 +3201,45 @@ exports.checkBlacklist = async (req, res) => {
     res.json({
       isBlacklisted: !!blocked,
       reason: blocked ? blocked.reason : null
+    });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+exports.importBlacklist = async (req, res) => {
+  try {
+    const { data } = req.body;
+    
+    if (!data || !Array.isArray(data)) {
+      return res.status(400).json({ message: '無效的資料格式' });
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const item of data) {
+      const { phone, licensePlate, reason } = item;
+      
+      if (!phone && !licensePlate) {
+        errorCount++;
+        continue;
+      }
+
+      try {
+        await Blacklist.create({
+          phone: phone ? String(phone).trim() : undefined,
+          licensePlate: licensePlate ? String(licensePlate).trim().toUpperCase() : undefined,
+          reason: reason ? String(reason).trim() : ''
+        });
+        successCount++;
+      } catch (err) {
+        errorCount++;
+      }
+    }
+
+    res.json({
+      message: `匯入完成。成功: ${successCount}, 失敗: ${errorCount}`
     });
   } catch (error) {
     res.status(500).json({ message: '伺服器錯誤', error: error.message });

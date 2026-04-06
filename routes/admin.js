@@ -149,6 +149,7 @@ router.get('/blacklist', adminController.getAllBlacklist);
 router.post('/blacklist', adminController.createBlacklist);
 router.put('/blacklist/:id', adminController.updateBlacklist);
 router.delete('/blacklist/:id', adminController.deleteBlacklist);
+router.post('/blacklist/import', adminController.importBlacklist);
 router.post('/blacklist/check', adminController.checkBlacklist);
 
 module.exports = router; 

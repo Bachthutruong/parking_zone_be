@@ -13,8 +13,7 @@ const blacklistSchema = new mongoose.Schema({
     index: true 
   },
   reason: { 
-    type: String, 
-    required: true 
+    type: String
   },
   isActive: { 
     type: Boolean, 
