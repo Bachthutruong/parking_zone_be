@@ -44,6 +44,11 @@ const TAIWAN_TZ = 'Asia/Taipei';
 function toTaiwanDateStr(d) {
   return d.toLocaleDateString('en-CA', { timeZone: TAIWAN_TZ });
 }
+function nextTaiwanDay(dayStr) {
+  const d = new Date(`${dayStr}T12:00:00+08:00`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toLocaleDateString('en-CA', { timeZone: TAIWAN_TZ });
+}
 
 // Get today's availability for all parking types (for sidebar display)
 // Uses Taiwan date to match calendar view on admin/bookings
@@ -151,8 +156,14 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
       return res.status(400).json({ message: '請提供年份或月份' });
     }
 
-    const startOfMonth = new Date(parseInt(year), parseInt(month) - 1, 1);
-    const endOfMonth = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+    const y = parseInt(year, 10);
+    const m = parseInt(month, 10);
+    const monthStr = String(m).padStart(2, '0');
+    const startDayStr = `${y}-${monthStr}-01`;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const endDayStr = `${y}-${monthStr}-${String(daysInMonth).padStart(2, '0')}`;
+    const startOfMonth = new Date(`${startDayStr}T00:00:00.000+08:00`);
+    const endOfMonth = new Date(`${endDayStr}T23:59:59.999+08:00`);
 
     const monthBookings = await Booking.find({
       parkingType: parkingType._id,
@@ -163,25 +174,23 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
       ]
     }).select('checkInTime checkOutTime vehicleCount').lean();
 
-    const daysInMonth = endOfMonth.getDate();
     const availabilityData = [];
+    const todayStr = toTaiwanDateStr(new Date());
 
-    for (let day = 1; day <= daysInMonth; day++) {
-      const currentDate = new Date(parseInt(year), parseInt(month) - 1, day);
-      const startOfDay = new Date(currentDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(currentDate);
-      endOfDay.setHours(23, 59, 59, 999);
+    let dayStr = startDayStr;
+    while (dayStr <= endDayStr) {
+      const startOfDay = new Date(`${dayStr}T00:00:00.000+08:00`);
+      const endOfDay = new Date(`${dayStr}T23:59:59.999+08:00`);
 
       const occupiedSpaces = monthBookings
         .filter(b => b.checkInTime < endOfDay && b.checkOutTime > startOfDay)
         .reduce((sum, b) => sum + (b.vehicleCount || 1), 0);
 
       const availableSpaces = Math.max(0, parkingType.totalSpaces - occupiedSpaces);
-      const isInPast = currentDate < new Date();
+      const isInPast = dayStr < todayStr;
 
       availabilityData.push({
-        date: currentDate.toISOString().split('T')[0],
+        date: dayStr,
         isAvailable: !isInPast && availableSpaces > 0,
         availableSpaces: isInPast ? 0 : availableSpaces,
         occupiedSpaces,
@@ -189,6 +198,8 @@ exports.getParkingTypeMonthAvailability = async (req, res) => {
         price: parkingType.pricePerDay,
         isInPast
       });
+
+      dayStr = nextTaiwanDay(dayStr);
     }
 
     res.json({
