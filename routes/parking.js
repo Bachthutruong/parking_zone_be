@@ -2,12 +2,15 @@ const express = require('express');
 const router = express.Router();
 const parkingController = require('../controllers/parkingController');
 const { validateParkingType } = require('../middleware/validation');
-const { auth, requireRole } = require('../middleware/auth');
+const { auth, requireRole, requireStaff } = require('../middleware/auth');
 const { upload, processImages } = require('../middleware/upload');
 
 // Public routes
 router.get('/', parkingController.getAllParkingTypes);
 router.get('/today-availability', parkingController.getTodayAvailability);
+// Admin/staff: must be before /:id (avoid "slot-snapshot" as :id)
+router.get('/slot-snapshot', auth, requireStaff, parkingController.getParkingSlotSnapshot);
+router.get('/:id/checkin-free-slots', auth, requireStaff, parkingController.getCheckinFreeSlots);
 router.get('/:id', parkingController.getParkingTypeById);
 router.get('/:id/availability', parkingController.getParkingTypeAvailability);
 router.get('/:id/month-availability', parkingController.getParkingTypeMonthAvailability);

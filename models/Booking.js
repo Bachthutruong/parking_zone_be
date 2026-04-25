@@ -177,6 +177,11 @@ const bookingSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Physical lot positions (1..N per parking lot). Set when status is checked-in; cleared on check-out / revert.
+  parkingSlotNumbers: {
+    type: [{ type: Number, min: 1 }],
+    default: []
+  },
   isDeleted: {
     type: Boolean,
     default: false
@@ -224,6 +229,7 @@ bookingSchema.index({ checkInTime: 1 });
 bookingSchema.index({ checkOutTime: 1 });
 bookingSchema.index({ phone: 1 });
 bookingSchema.index({ licensePlate: 1 });
+bookingSchema.index({ parkingType: 1, status: 1 });
 bookingSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Booking', bookingSchema); 

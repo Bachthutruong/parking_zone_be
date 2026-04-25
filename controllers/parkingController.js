@@ -616,6 +616,113 @@ exports.updateImageOrder = async (req, res) => {
   }
 };
 
+// GET /parking/slot-snapshot — physical slots per lot (checked-in only). Query ?at= ISO time (display/refresh; occupancy is current checked-in)
+exports.getParkingSlotSnapshot = async (req, res) => {
+  try {
+    const at = req.query.at ? new Date(req.query.at) : new Date();
+    if (Number.isNaN(at.getTime())) {
+      return res.status(400).json({ message: '時間格式無效' });
+    }
+    const parkingTypes = await ParkingType.find({ isActive: true }).sort({ name: 1 });
+    const lots = [];
+    for (const pt of parkingTypes) {
+      const checkedIn = await Booking.find({
+        parkingType: pt._id,
+        status: 'checked-in',
+        isDeleted: { $ne: true }
+      })
+        .populate('parkingType', 'name code icon color totalSpaces')
+        .lean();
 
+      const bySlot = {};
+      let unassigned = [];
+      for (const b of checkedIn) {
+        const slots = Array.isArray(b.parkingSlotNumbers) && b.parkingSlotNumbers.length
+          ? b.parkingSlotNumbers
+          : [];
+        const bookingPreview = {
+          _id: b._id,
+          createdAt: b.createdAt,
+          licensePlate: b.licensePlate,
+          driverName: b.driverName,
+          phone: b.phone,
+          checkInTime: b.checkInTime,
+          checkOutTime: b.checkOutTime,
+          finalAmount: b.finalAmount,
+          status: b.status,
+          vehicleCount: b.vehicleCount || 1,
+          actualCheckInTime: b.actualCheckInTime
+        };
+        if (slots.length === 0) {
+          unassigned.push(bookingPreview);
+          continue;
+        }
+        for (const s of slots) {
+          if (s < 1 || s > pt.totalSpaces) continue;
+          if (!bySlot[s]) {
+            bySlot[s] = bookingPreview;
+          }
+        }
+      }
+
+      const slots = [];
+      for (let n = 1; n <= pt.totalSpaces; n += 1) {
+        slots.push({ slotNumber: n, booking: bySlot[n] || null });
+      }
+      lots.push({
+        parkingType: {
+          _id: pt._id,
+          name: pt.name,
+          code: pt.code,
+          icon: pt.icon,
+          color: pt.color,
+          totalSpaces: pt.totalSpaces
+        },
+        at: at.toISOString(),
+        slots,
+        unassignedCheckedIn: unassigned
+      });
+    }
+    res.json({ serverTime: new Date().toISOString(), lots });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
+
+// GET /parking/:id/checkin-free-slots — numbers free for new check-in (optionally exclude current booking)
+exports.getCheckinFreeSlots = async (req, res) => {
+  try {
+    const { id: parkingTypeId } = req.params;
+    const exclude = req.query.excludeBookingId;
+
+    const pt = await ParkingType.findById(parkingTypeId);
+    if (!pt) {
+      return res.status(404).json({ message: '找不到停車類型' });
+    }
+
+    const q = {
+      parkingType: pt._id,
+      status: 'checked-in',
+      isDeleted: { $ne: true }
+    };
+    if (exclude) {
+      q._id = { $ne: exclude };
+    }
+    const taken = await Booking.find(q).select('parkingSlotNumbers').lean();
+    const used = new Set();
+    for (const b of taken) {
+      for (const s of b.parkingSlotNumbers || []) {
+        used.add(s);
+      }
+    }
+    const free = [];
+    for (let n = 1; n <= pt.totalSpaces; n += 1) {
+      if (!used.has(n)) free.push(n);
+    }
+    res.json({ totalSpaces: pt.totalSpaces, freeSlots: free, takenCount: used.size });
+  } catch (error) {
+    res.status(500).json({ message: '伺服器錯誤', error: error.message });
+  }
+};
 
 module.exports = exports; 

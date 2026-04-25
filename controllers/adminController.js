@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Booking = require('../models/Booking');
 const ParkingType = require('../models/ParkingType');
 const AddonService = require('../models/AddonService');
@@ -201,19 +202,38 @@ exports.getAllBookings = async (req, res) => {
   }
 };
 
-// Get all bookings for calendar view (no pagination)
+// Get all bookings for calendar view (no pagination) — must stay bounded by a date range
 exports.getCalendarBookings = async (req, res) => {
   try {
     const {
       status,
-      dateFrom,
-      dateTo,
+      dateFrom: dateFromQ,
+      dateTo: dateToQ,
       search,
       parkingTypeId,
       isDeleted
     } = req.query;
 
-    const query = {};
+    let fromStr = typeof dateFromQ === 'string' ? dateFromQ.trim() : '';
+    let toStr = typeof dateToQ === 'string' ? dateToQ.trim() : '';
+    if (!fromStr || !toStr) {
+      const dayStr = toTaiwanDateStr(new Date());
+      const [y, m] = dayStr.split('-').map((s) => parseInt(s, 10));
+      const lastDay = new Date(y, m, 0).getDate();
+      fromStr = `${y}-${String(m).padStart(2, '0')}-01`;
+      toStr = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    }
+
+    const rangeStart = new Date(fromStr + 'T00:00:00.000+08:00');
+    const rangeEnd = new Date(toStr + 'T23:59:59.999+08:00');
+    if (isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime()) || rangeStart > rangeEnd) {
+      return res.json({ bookings: [], total: 0 });
+    }
+
+    const query = {
+      checkInTime: { $lt: rangeEnd },
+      checkOutTime: { $gt: rangeStart }
+    };
 
     // Deleted filter
     if (isDeleted === 'true') {
@@ -231,42 +251,21 @@ exports.getCalendarBookings = async (req, res) => {
       }
     }
 
-    // Date range filter for calendar - use checkInTime and checkOutTime for better accuracy
-    if (dateFrom || dateTo) {
-      // Find bookings that overlap with the date range
-      const dateFilters = [];
-      if (dateFrom && dateTo) {
-        // Booking overlaps with date range
-        dateFilters.push({
-          checkInTime: { $lte: new Date(dateTo) },
-          checkOutTime: { $gte: new Date(dateFrom) }
-        });
-      } else if (dateFrom) {
-        dateFilters.push({ checkOutTime: { $gte: new Date(dateFrom) } });
-      } else if (dateTo) {
-        dateFilters.push({ checkInTime: { $lte: new Date(dateTo) } });
-      }
-      if (dateFilters.length > 0) {
-        query.$and = dateFilters;
-      }
-    }
-
-    // Search filter
-    if (search) {
+    if (search && String(search).trim()) {
+      const esc = String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       query.$or = [
-        { driverName: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { licensePlate: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { driverName: { $regex: esc, $options: 'i' } },
+        { phone: { $regex: esc, $options: 'i' } },
+        { licensePlate: { $regex: esc, $options: 'i' } },
+        { email: { $regex: esc, $options: 'i' } }
       ];
     }
 
-    // Parking type filter
-    if (parkingTypeId) {
-      query.parkingType = parkingTypeId;
+    if (parkingTypeId && mongoose.Types.ObjectId.isValid(parkingTypeId)) {
+      query.parkingType = new mongoose.Types.ObjectId(parkingTypeId);
     }
 
-    // Get all bookings without pagination
+    // Get all bookings in range (bounded by month from FE or default current month)
     const bookings = await Booking.find(query)
       .populate('parkingType', '_id name code type icon color totalSpaces')
       .populate('user', 'name email isVIP')
@@ -1168,7 +1167,6 @@ exports.updateBookingStatus = async (req, res) => {
 exports.updateBooking = async (req, res) => {
   try {
     const { id } = req.params;
-    const mongoose = require('mongoose');
     const allowed = [
       'driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime',
       'status', 'notes', 'parkingType',

@@ -1119,34 +1119,120 @@ exports.getBookingDetails = async (req, res) => {
   }
 };
 
+/**
+ * Normalise slot list from request: parkingSlotNumbers array and optional parkingSlotNumber (single-vehicle)
+ */
+function collectParkingSlotsFromBody(body, vehicleCount) {
+  const vc = Math.max(1, vehicleCount || 1);
+  let raw = body.parkingSlotNumbers;
+  if (raw != null && !Array.isArray(raw)) {
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        raw = Array.isArray(parsed) ? parsed : [Number(raw)];
+      } catch {
+        raw = [Number(raw)];
+      }
+    } else {
+      raw = [raw];
+    }
+  }
+  if ((!raw || raw.length === 0) && body.parkingSlotNumber != null && body.parkingSlotNumber !== '') {
+    raw = [Number(body.parkingSlotNumber)];
+  }
+  if (!raw || raw.length === 0) return { slots: null, error: '請選擇停車位' };
+  const slots = raw.map((n) => parseInt(n, 10)).filter((n) => !Number.isNaN(n) && n >= 1);
+  if (slots.length !== vc) {
+    return { slots: null, error: `須選擇 ${vc} 個停車位（目前 ${slots.length} 個）` };
+  }
+  if (new Set(slots).size !== slots.length) {
+    return { slots: null, error: '停車位不可重複' };
+  }
+  return { slots, error: null };
+}
+
 // Update booking status
 exports.updateBookingStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, reason } = req.body;
+    const textNote = reason || notes;
 
-    const booking = await Booking.findById(id);
+    const booking = await Booking.findById(id).populate('parkingType', 'name totalSpaces');
     if (!booking) {
       return res.status(404).json({ message: '找不到預約' });
     }
 
-    // Update status and timestamps
-    const updateData = { status };
-    if (status === 'checked-in' && !booking.actualCheckInTime) {
-      updateData.actualCheckInTime = new Date();
+    if (booking.isDeleted) {
+      return res.status(400).json({ message: '已刪除的預約無法變更狀態' });
     }
+
+    const updateData = { status };
+    const pt = booking.parkingType;
+    const totalSpaces = pt && typeof pt === 'object' && pt.totalSpaces != null
+      ? pt.totalSpaces
+      : (await ParkingType.findById(booking.parkingType))?.totalSpaces;
+    if (!totalSpaces) {
+      return res.status(400).json({ message: '停車場資料錯誤' });
+    }
+
+    const vehicleCount = Math.max(1, booking.vehicleCount || 1);
+
+    // Releasing a slot when leaving the lot
+    if (status === 'checked-out' || status === 'confirmed' || status === 'cancelled') {
+      if (booking.status === 'checked-in') {
+        updateData.parkingSlotNumbers = [];
+      }
+    }
+
+    if (status === 'checked-in') {
+      if (['cancelled', 'checked-out'].includes(booking.status)) {
+        return res.status(400).json({ message: '此預約狀態不可改為入場' });
+      }
+      const { slots, error: slotError } = collectParkingSlotsFromBody(req.body, vehicleCount);
+      if (slotError) {
+        return res.status(400).json({ message: slotError });
+      }
+      for (const s of slots) {
+        if (s > totalSpaces) {
+          return res.status(400).json({ message: `車位必須在 1–${totalSpaces} 之間` });
+        }
+      }
+
+      // Conflict: same lot, other checked-in booking already uses a slot
+      const conflict = await Booking.findOne({
+        _id: { $ne: booking._id },
+        parkingType: booking.parkingType,
+        status: 'checked-in',
+        isDeleted: { $ne: true },
+        parkingSlotNumbers: { $in: slots }
+      }).select('licensePlate parkingSlotNumbers').lean();
+      if (conflict) {
+        return res.status(400).json({
+          message: `車位與在場車輛衝突（車牌：${conflict.licensePlate || '—'}）`
+        });
+      }
+
+      updateData.parkingSlotNumbers = slots;
+      if (!booking.actualCheckInTime) {
+        updateData.actualCheckInTime = new Date();
+      }
+    }
+
     if (status === 'checked-out' && !booking.actualCheckOutTime) {
       updateData.actualCheckOutTime = new Date();
     }
-    if (notes) {
-      updateData.notes = notes;
+    if (textNote) {
+      updateData.notes = textNote;
     }
 
     const updatedBooking = await Booking.findByIdAndUpdate(
       id,
       updateData,
-      { new: true }
-    ).populate('parkingType', 'name type');
+      { new: true, runValidators: true }
+    ).populate('parkingType', 'name type code totalSpaces')
+      .populate('user', 'name email phone isVIP')
+      .populate('addonServices.service', 'name icon price');
 
     res.json({
       message: '狀態更新成功',
@@ -1357,9 +1443,38 @@ async function calculateBookingPrice({
   };
 }
 
+// Filter today-summary rows by 預約編號 / 姓名 / 電話 / 車牌 / 停車場
+function matchesTodaySearch(booking, searchRaw) {
+  const t = typeof searchRaw === 'string' ? searchRaw.trim() : '';
+  if (!t) return true;
+  const q = t.toLowerCase();
+  const qDigits = t.replace(/\D/g, '');
+
+  const str = (v) => String(v ?? '').toLowerCase();
+  const fields = [
+    str(booking.bookingNumber),
+    str(booking.driverName),
+    str(booking.phone),
+    str(booking.licensePlate),
+    str(booking.parkingType && booking.parkingType.name),
+    str(booking.parkingType && booking.parkingType.code),
+    str(booking.user && booking.user.name),
+    str(booking.user && booking.user.phone)
+  ];
+  if (fields.some((f) => f.includes(q))) return true;
+  if (qDigits.length >= 3) {
+    const p1 = String(booking.phone || '').replace(/\D/g, '');
+    const p2 = String((booking.user && booking.user.phone) || '').replace(/\D/g, '');
+    if (p1.includes(qDigits) || p2.includes(qDigits)) return true;
+  }
+  return false;
+}
+
 // Get today's check-ins and check-outs
 exports.getTodayBookings = async (req, res) => {
   try {
+    const searchRaw = typeof req.query.search === 'string' ? req.query.search : '';
+
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
@@ -1414,16 +1529,27 @@ exports.getTodayBookings = async (req, res) => {
       }));
     };
 
+    const checkIns = addBookingNumber(checkInsToday);
+    const checkOuts = addBookingNumber(checkOutsToday);
+    const overdue = addBookingNumber(overdueBookings);
+    const expectedNotEntered = addBookingNumber(expectedNotEnteredBookings);
+
+    const filterIfNeeded = (list) => (searchRaw.trim() ? list.filter((b) => matchesTodaySearch(b, searchRaw)) : list);
+    const checkInsF = filterIfNeeded(checkIns);
+    const checkOutsF = filterIfNeeded(checkOuts);
+    const overdueF = filterIfNeeded(overdue);
+    const expectedNotEnteredF = filterIfNeeded(expectedNotEntered);
+
     res.json({
-      checkInsToday: addBookingNumber(checkInsToday),
-      checkOutsToday: addBookingNumber(checkOutsToday),
-      overdueBookings: addBookingNumber(overdueBookings),
-      expectedNotEnteredBookings: addBookingNumber(expectedNotEnteredBookings),
+      checkInsToday: checkInsF,
+      checkOutsToday: checkOutsF,
+      overdueBookings: overdueF,
+      expectedNotEnteredBookings: expectedNotEnteredF,
       summary: {
-        totalCheckIns: checkInsToday.length,
-        totalCheckOuts: checkOutsToday.length,
-        totalOverdue: overdueBookings.length,
-        totalExpectedNotEntered: expectedNotEnteredBookings.length
+        totalCheckIns: checkInsF.length,
+        totalCheckOuts: checkOutsF.length,
+        totalOverdue: overdueF.length,
+        totalExpectedNotEntered: expectedNotEnteredF.length
       }
     });
   } catch (error) {
