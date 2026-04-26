@@ -1325,6 +1325,7 @@ exports.createManualBooking = async (req, res) => {
       estimatedArrivalTime,
       flightNumber,
       notes,
+      userProfileNotes,
       paymentStatus = 'pending',
       paymentMethod = 'cash',
       status = 'confirmed',
@@ -1415,6 +1416,12 @@ exports.createManualBooking = async (req, res) => {
         console.log('🔍 [adminController.createManualBooking] Updated existing user to VIP:', user._id);
       }
       console.log('🔍 [adminController.createManualBooking] Found user:', user._id, 'isVIP:', user.isVIP, 'vipDiscount:', user.vipDiscount);
+    }
+
+    // Persist member profile notes (same field as 用戶管理 → 備註), not booking.notes
+    if (typeof userProfileNotes === 'string') {
+      user.notes = userProfileNotes;
+      await user.save();
     }
 
     // Calculate price using accurate logic

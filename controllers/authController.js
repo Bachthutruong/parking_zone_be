@@ -195,28 +195,37 @@ const getBookingTerms = async (req, res) => {
   }
 };
 
-// Check VIP status by email
+function escapeRegExp(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Check VIP / load profile by phone, email, and/or license plate (admin & booking)
 const checkVIPStatus = async (req, res) => {
   try {
-    const { phone, email } = req.body;
-    
-    if (!phone && !email) {
-      return res.status(400).json({ 
+    const { phone, email, licensePlate } = req.body;
+
+    const p = phone != null && String(phone).trim() ? String(phone).trim() : '';
+    const e = email != null && String(email).trim() ? String(email).trim().toLowerCase() : '';
+    const plateRaw = licensePlate != null && String(licensePlate).trim() ? String(licensePlate).trim() : '';
+
+    if (!p && !e && !plateRaw) {
+      return res.status(400).json({
         success: false,
-        message: '請輸入電話號碼或電子郵件' 
+        message: '請輸入電話號碼、電子郵件或車牌號碼（至少一項）'
       });
     }
 
-    // Find user by phone or email
-    let query = {};
-    if (phone) {
-      query.phone = phone;
-    } else {
-      query.email = email;
+    const or = [];
+    if (p) or.push({ phone: p });
+    if (e) or.push({ email: e });
+    if (plateRaw) {
+      or.push({
+        licensePlate: new RegExp(`^${escapeRegExp(plateRaw)}$`, 'i')
+      });
     }
 
-    const user = await User.findOne(query).select('name email phone isVIP vipDiscount vipCode vipCreatedAt');
-    
+    const user = await User.findOne({ $or: or }).select('name email phone licensePlate isVIP vipDiscount vipCode vipCreatedAt notes');
+
     if (!user) {
       return res.json({
         success: false,
@@ -234,10 +243,12 @@ const checkVIPStatus = async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
+        licensePlate: user.licensePlate || '',
         isVIP: user.isVIP,
         vipDiscount: user.vipDiscount || 0,
         vipCode: user.vipCode,
-        vipCreatedAt: user.vipCreatedAt
+        vipCreatedAt: user.vipCreatedAt,
+        notes: user.notes || ''
       },
       isVIP: user.isVIP,
       vipDiscount: user.vipDiscount || 0

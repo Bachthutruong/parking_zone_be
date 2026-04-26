@@ -22,6 +22,7 @@
     "test:maintenance-public": "node scripts/testMaintenanceInPublicBooking.js",
     "summary": "node scripts/finalSummary.js",
     "create:admin": "node scripts/createAdminUser.js",
+    "data:backfill-slots": "node scripts/backfillParkingSlotNumbers.js",
     "build": "npm install --production",
     "build:dev": "npm install",
     "deploy": "npm run build && npm start",
