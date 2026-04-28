@@ -1170,7 +1170,7 @@ exports.updateBooking = async (req, res) => {
     const allowed = [
       'driverName', 'phone', 'email', 'licensePlate', 'checkInTime', 'checkOutTime',
       'status', 'notes', 'parkingType',
-      'vehicleCount', 'totalAmount', 'discountAmount', 'finalAmount'
+      'vehicleCount', 'totalAmount', 'discountAmount', 'finalAmount', 'parkingSlotNumbers'
     ];
     const updates = {};
     for (const key of allowed) {

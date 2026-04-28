@@ -18,8 +18,7 @@ const parkingTypeSchema = new mongoose.Schema({
     default: 'indoor'
   },
   description: {
-    type: String,
-    required: true
+    type: String
   },
   icon: {
     type: String,
@@ -77,8 +76,7 @@ const parkingTypeSchema = new mongoose.Schema({
     trim: true
   },
   features: [{
-    type: String,
-    enum: ['covered', 'security', 'camera', 'lighting', 'accessible']
+    type: String
   }],
   operatingHours: {
     open: {
